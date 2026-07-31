@@ -17,9 +17,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # --- Initialize Real AI Client (Google GenAI) ---
-# Set your API Key in environment variable OR paste directly here
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6IlacJzoOQBL-t4V7h6fokiawopwfgH6542kOmJFKYhgg")
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+# GitHub Secret Protection-க்காக raw key-ஐ எடுத்துட்டு Environment Variable பயன்படுத்தப்பட்டுள்ளது!
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 class ConnectionManager:
     def __init__(self):
@@ -76,19 +76,20 @@ CORE RULES & PERSONALITY:
 
 async def generate_ai_reply(prompt: str, chat_history: List[dict] = None) -> str:
     """Generates dynamic AI responses using Google GenAI SDK with zero repetition."""
+    if not ai_client:
+        return "Bro, API Key இன்னும் Render Environment-ல set ஆகல! Render Dashboard-ல GEMINI_API_KEY அட் பண்ணுங்க."
+
     try:
-        # Build prompt history context if needed
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.7, # Adds creativity and dynamic variation to avoid repeating!
+                temperature=0.7,
             ),
         )
         return response.text
     except Exception as e:
-        # Fallback response in case of API connection or quota issues
         return f"Bro, oru chinna network connection delay. Aanalum naan unkooda thaan irukken! Innoru thadavai sollu bro, pesalam."
 
 @app.get("/")
