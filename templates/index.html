@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Nexus - Modern Chat Platform</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.18.3/index.js"></script>
+</head>
+<body>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <h2>Quantum Nexus Login</h2>
+            <input type="text" id="username-input" placeholder="Enter Username/Phone..." onkeypress="if(event.key==='Enter') login()" />
+            <button onclick="login()">Enter Nexus</button>
+        </div>
+    </div>
+
+    <!-- Create Group Modal -->
+    <div id="group-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Create Group Room</h3>
+            <input type="text" id="group-name-input" placeholder="Group Name..." />
+            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                <button onclick="createGroup()">Create</button>
+                <button onclick="closeGroupModal()" style="background: #6b7280;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div class="app-container" style="display:none;" id="app-container">
+        <div class="navbar">
+            <div class="brand">
+                <span class="logo-qwatch">Qwatch</span> | <span class="logo-quantum">Quantum Nexus</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button class="theme-toggle-btn" onclick="toggleTheme()"><i class="fa-solid fa-sun" id="theme-icon"></i></button>
+                <span id="user-display"></span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Leftmost WhatsApp Web Navigation Bar -->
+            <aside class="nav-sidebar">
+                <div class="nav-top">
+                    <div class="nav-icon active" title="Chats">
+                        <i class="fa-solid fa-comment-dots"></i>
+                        <span class="badge">6</span>
+                    </div>
+                    <div class="nav-icon" title="Calls"><i class="fa-solid fa-phone"></i></div>
+                    <div class="nav-icon" title="Status"><i class="fa-circle-notch"></i></div>
+                    <div class="nav-icon" title="Channels"><i class="fa-regular fa-compass"></i></div>
+                    <div class="nav-icon" title="Communities"><i class="fa-solid fa-users"></i></div>
+                </div>
+                <div class="nav-bottom">
+                    <div class="nav-icon ai-icon" title="Meta AI / Assistant"><i class="fa-solid fa-arrows-spin"></i></div>
+                </div>
+            </aside>
+
+            <!-- Sidebar / Contacts List -->
+            <div class="sidebar" id="sidebar">
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="search-input" placeholder="Search..." onkeyup="filterContacts()" />
+                    <button class="add-group-btn" onclick="addNewContactModal()" title="Add Contact"><i class="fa-solid fa-user-plus"></i></button>
+                    <button class="add-group-btn" onclick="syncPhoneContacts()" title="Sync Phonebook"><i class="fa-solid fa-address-book"></i></button>
+                    <button class="add-group-btn" onclick="openGroupModal()" title="Create Group"><i class="fa-solid fa-users"></i></button>
+                </div>
+                <div class="contact-list" id="contact-list"></div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="chat-area" id="chat-area">
+                <div class="chat-header">
+                    <div style="display:flex; align-items:center;">
+                        <span class="back-to-contacts" onclick="showContactsList()"><i class="fa-solid fa-arrow-left"></i></span>
+                        <div class="user-info">
+                            <h3 id="active-user-name">Select a Chat</h3>
+                            <span id="active-user-status" style="font-size:0.8rem; color:var(--text-secondary);">Offline</span>
+                            <span id="typing-indicator" class="typing-text"></span>
+                        </div>
+                    </div>
+
+                    <div class="msg-search-box">
+                        <input type="text" id="msg-search-input" placeholder="Search messages..." onkeyup="searchMessages()" />
+                    </div>
+
+                    <div class="call-actions-wrapper">
+                        <div class="call-actions" id="call-actions">
+                            <button class="call-btn" onclick="startCall('audio')"><i class="fa-solid fa-phone"></i></button>
+                            <button class="call-btn" onclick="startCall('video')"><i class="fa-solid fa-video"></i></button>
+                        </div>
+
+                        <!-- WhatsApp Web Style 3-Dots Dropdown Menu -->
+                        <div class="dropdown">
+                            <button class="call-btn" onclick="toggleMenu()"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                            <div id="chat-dropdown-menu" class="dropdown-content">
+                                <a href="#" onclick="alert('Contact Info')"><i class="fa-solid fa-circle-info"></i> Contact info</a>
+                                <a href="#" onclick="document.getElementById('msg-search-input').focus()"><i class="fa-solid fa-magnifying-glass"></i> Search</a>
+                                <a href="#" onclick="alert('Select Messages feature enabled')"><i class="fa-solid fa-square-check"></i> Select messages</a>
+                                <a href="#" onclick="alert('Muted Notifications')"><i class="fa-solid fa-bell-slash"></i> Mute notifications</a>
+                                <a href="#" onclick="alert('Disappearing Messages')"><i class="fa-solid fa-clock-rotate-left"></i> Disappearing messages</a>
+                                <a href="#" onclick="alert('Added to Favourites')"><i class="fa-solid fa-heart"></i> Add to favourites</a>
+                                <hr>
+                                <a href="#" onclick="alert('Blocked User')" class="text-danger"><i class="fa-solid fa-ban"></i> Block</a>
+                                <a href="#" onclick="clearCurrentChat()" class="text-danger"><i class="fa-solid fa-broom"></i> Clear chat</a>
+                                <a href="#" onclick="clearCurrentChat()" class="text-danger"><i class="fa-solid fa-trash"></i> Delete chat</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="messages-container" id="messages-container"></div>
+
+                <div id="reply-preview-box" class="reply-preview-box" style="display: none;">
+                    <div class="reply-details">
+                        <span id="reply-to-user" class="reply-user"></span>
+                        <span id="reply-to-text" class="reply-text"></span>
+                    </div>
+                    <i class="fa-solid fa-xmark close-reply" onclick="cancelReply()"></i>
+                </div>
+
+                <div id="emoji-picker-container" class="emoji-picker-popup" style="display: none;">
+                    <emoji-picker></emoji-picker>
+                </div>
+
+                <div class="chat-input-area">
+                    <button class="icon-btn" onclick="toggleEmojiPicker()"><i class="fa-regular fa-face-smile"></i></button>
+                    
+                    <label for="file-upload" class="icon-btn" style="cursor: pointer;">
+                        <i class="fa-solid fa-paperclip"></i>
+                    </label>
+                    <input type="file" id="file-upload" style="display: none;" onchange="uploadFile()" />
+
+                    <div id="recording-status" class="recording-status" style="display: none;">
+                        <span class="rec-dot"></span>
+                        <span id="rec-timer">00:00</span>
+                    </div>
+
+                    <input type="text" id="message-input" placeholder="Type a message (Use @ai for Nexus AI)..." oninput="sendTypingStatus()" onkeypress="handleKeyPress(event)" />
+                    
+                    <button class="icon-btn" id="record-btn" onclick="toggleRecording()"><i class="fa-solid fa-microphone"></i></button>
+                    <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="lightbox-modal" class="modal" style="display: none;" onclick="closeLightbox()">
+        <span class="close-lightbox">&times;</span>
+        <img class="lightbox-content" id="lightbox-img" alt="Enlarged Image">
+        <a id="download-img-btn" href="#" download class="download-btn"><i class="fa-solid fa-download"></i> Download</a>
+    </div>
+
+    <div id="call-modal" class="modal" style="display: none;">
+        <div class="call-window">
+            <h3 id="call-status-text">Calling...</h3>
+            <div class="video-container">
+                <video id="remote-video" autoplay playsinline></video>
+                <video id="local-video" autoplay playsinline muted></video>
+            </div>
+            <div class="call-controls">
+                <button class="end-call-btn" onclick="endCall()"><i class="fa-solid fa-phone-slash"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
