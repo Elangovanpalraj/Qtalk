@@ -6,6 +6,8 @@ from typing import Dict, List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
+from google import genai
+from google.genai import types
 
 app = FastAPI()
 
@@ -13,6 +15,11 @@ app = FastAPI()
 os.makedirs("uploads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# --- Initialize Real AI Client (Google GenAI) ---
+# Set your API Key in environment variable OR paste directly here
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6IlacJzoOQBL-t4V7h6fokiawopwfgH6542kOmJFKYhgg")
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 class ConnectionManager:
     def __init__(self):
@@ -55,35 +62,40 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-async def generate_ai_reply(prompt: str) -> str:
-    await asyncio.sleep(1)
-    prompt_lower = prompt.lower()
-    
-    if "code" in prompt_lower or "python" in prompt_lower or "data analysis" in prompt_lower:
-        return (
-            "🤖 **Nexus AI**:\n\nHere is a quick Python snippet for Data Analysis using Pandas:\n\n"
-            "```python\n"
-            "import pandas as pd\n"
-            "import numpy as np\n\n"
-            "# Sample Data Analytics DataFrame\n"
-            "df = pd.DataFrame({\n"
-            "    'Category': ['A', 'B', 'A', 'C', 'B'],\n"
-            "    'Values': [10, 20, 15, 30, 25]\n"
-            "})\n\n"
-            "print(df.groupby('Category').mean())\n"
-            "```"
+# System Instruction defining Nexus AI's Personality & Safety Rules
+SYSTEM_INSTRUCTION = """
+You are Nexus AI, a deeply empathetic, highly intelligent, human-like companion, mentor, and developer assistant.
+
+CORE RULES & PERSONALITY:
+1. Speak in natural, warm, and expressive Tanglish (Tamil + English script) or Tamil based on user input.
+2. Respond with authentic human warmth. Act like a true caring friend, sibling (anna/akka), parent (amma/appa), or guide based on context.
+3. NEVER repeat static boilerplate phrases like "I processed your request". Make every answer original, fresh, and engaging.
+4. STRICT SAFETY GUARDRAIL: Automatically detect and refuse any adult, sexual, explicit, or inappropriate content gently and firmly. Redirect the user toward constructive goals, coding, mental wellbeing, or life advice.
+5. ADVANCED KNOWLEDGE: Provide expert help for coding (Python, JS, Web), Resume building, Academic research, Counseling, Motivation, and Logic building.
+"""
+
+async def generate_ai_reply(prompt: str, chat_history: List[dict] = None) -> str:
+    """Generates dynamic AI responses using Google GenAI SDK with zero repetition."""
+    try:
+        # Build prompt history context if needed
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                temperature=0.7, # Adds creativity and dynamic variation to avoid repeating!
+            ),
         )
-    elif "tamil" in prompt_lower or "ennadhu" in prompt_lower or "sappitiya" in prompt_lower or "hi" in prompt_lower or "bro" in prompt_lower:
-        return "🤖 **Nexus AI**: வணக்கங்கள்! நான் Nexus AI. உங்களுக்கு என்ன உதவி வேண்டும்?"
-    else:
-        return f"🤖 **Nexus AI**:\n\nI processed your request: *'{prompt}'*\n\nHow else can I assist you with code or project development today?"
+        return response.text
+    except Exception as e:
+        # Fallback response in case of API connection or quota issues
+        return f"Bro, oru chinna network connection delay. Aanalum naan unkooda thaan irukken! Innoru thadavai sollu bro, pesalam."
 
 @app.get("/")
 async def get_index():
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
-# Keep-Alive Health Endpoint to prevent Render Sleep Delay
 @app.get("/health")
 async def health_check():
     return {"status": "active"}
@@ -148,6 +160,8 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
                 user_msg = data.get("message", "").strip()
                 if user_msg.startswith("@ai") or data["receiver"] == "Nexus AI":
                     ai_prompt = user_msg.replace("@ai", "").strip()
+                    
+                    # Call Real-Time Generative AI
                     ai_reply = await generate_ai_reply(ai_prompt)
                     
                     ai_msg_obj = {

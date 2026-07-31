@@ -9,3 +9,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 websockets
+fastapi
+uvicorn
+websockets
+google-genai
