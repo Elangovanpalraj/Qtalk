@@ -83,6 +83,11 @@ async def get_index():
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+# Keep-Alive Health Endpoint to prevent Render Sleep Delay
+@app.get("/health")
+async def health_check():
+    return {"status": "active"}
+
 @app.get("/users")
 async def get_users():
     return JSONResponse(content={"users": list(manager.registered_users)})

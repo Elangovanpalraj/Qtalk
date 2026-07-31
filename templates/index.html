@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantum Nexus - Modern Chat Platform</title>
+    <title>Qtalk</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -13,15 +13,51 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1.18.3/index.js"></script>
+    
+    <style>
+        /* Modern Clean Qtalk Custom Overrides */
+        .navbar .brand {
+            font-size: 24px;
+            font-weight: 700;
+            color: #25d366; /* WhatsApp Green */
+            letter-spacing: 0.5px;
+        }
+        .fab-add-chat {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 54px;
+            height: 54px;
+            border-radius: 16px;
+            background-color: #00a884;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 100;
+        }
+        .chat-input-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+        }
+        .chat-input-area input[type="text"] {
+            flex: 1;
+        }
+    </style>
 </head>
 <body>
 
     <!-- Login Modal -->
     <div id="login-modal" class="modal">
         <div class="modal-content">
-            <h2>Quantum Nexus Login</h2>
+            <h2>Qtalk Login</h2>
             <input type="text" id="username-input" placeholder="Enter Username/Phone..." onkeypress="if(event.key==='Enter') login()" />
-            <button onclick="login()">Enter Nexus</button>
+            <button onclick="login()">Enter Qtalk</button>
         </div>
     </div>
 
@@ -39,18 +75,21 @@
 
     <!-- App Container -->
     <div class="app-container" style="display:none;" id="app-container">
+        <!-- Top Navbar Cleaned: Pure Qtalk Title with Camera, Search & Menu -->
         <div class="navbar">
             <div class="brand">
-                <span class="logo-qwatch">Qwatch</span> | <span class="logo-quantum">Quantum Nexus</span>
+                <span>Qtalk</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 15px;">
+            <div style="display: flex; align-items: center; gap: 18px;">
+                <button class="icon-btn" title="Camera"><i class="fa-solid fa-camera"></i></button>
+                <button class="icon-btn" title="Search" onclick="document.getElementById('search-input').focus()"><i class="fa-solid fa-magnifying-glass"></i></button>
                 <button class="theme-toggle-btn" onclick="toggleTheme()"><i class="fa-solid fa-sun" id="theme-icon"></i></button>
                 <span id="user-display"></span>
             </div>
         </div>
 
         <div class="main-content">
-            <!-- Leftmost WhatsApp Web Navigation Bar -->
+            <!-- Leftmost Navigation Bar -->
             <aside class="nav-sidebar">
                 <div class="nav-top">
                     <div class="nav-icon active" title="Chats">
@@ -63,7 +102,7 @@
                     <div class="nav-icon" title="Communities"><i class="fa-solid fa-users"></i></div>
                 </div>
                 <div class="nav-bottom">
-                    <div class="nav-icon ai-icon" title="Meta AI / Assistant"><i class="fa-solid fa-arrows-spin"></i></div>
+                    <div class="nav-icon ai-icon" title="Nexus AI Assistant"><i class="fa-solid fa-arrows-spin"></i></div>
                 </div>
             </aside>
 
@@ -71,12 +110,17 @@
             <div class="sidebar" id="sidebar">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="search-input" placeholder="Search..." onkeyup="filterContacts()" />
+                    <input type="text" id="search-input" placeholder="Ask Meta AI or Search..." onkeyup="filterContacts()" />
                     <button class="add-group-btn" onclick="addNewContactModal()" title="Add Contact"><i class="fa-solid fa-user-plus"></i></button>
                     <button class="add-group-btn" onclick="syncPhoneContacts()" title="Sync Phonebook"><i class="fa-solid fa-address-book"></i></button>
                     <button class="add-group-btn" onclick="openGroupModal()" title="Create Group"><i class="fa-solid fa-users"></i></button>
                 </div>
                 <div class="contact-list" id="contact-list"></div>
+                
+                <!-- Floating New Chat Plus Button -->
+                <div class="fab-add-chat" onclick="openGroupModal()" title="New Chat">
+                    <i class="fa-solid fa-plus"></i>
+                </div>
             </div>
 
             <!-- Chat Area -->
@@ -101,20 +145,14 @@
                             <button class="call-btn" onclick="startCall('video')"><i class="fa-solid fa-video"></i></button>
                         </div>
 
-                        <!-- WhatsApp Web Style 3-Dots Dropdown Menu -->
+                        <!-- Dropdown Menu -->
                         <div class="dropdown">
                             <button class="call-btn" onclick="toggleMenu()"><i class="fa-solid fa-ellipsis-vertical"></i></button>
                             <div id="chat-dropdown-menu" class="dropdown-content">
                                 <a href="#" onclick="alert('Contact Info')"><i class="fa-solid fa-circle-info"></i> Contact info</a>
                                 <a href="#" onclick="document.getElementById('msg-search-input').focus()"><i class="fa-solid fa-magnifying-glass"></i> Search</a>
-                                <a href="#" onclick="alert('Select Messages feature enabled')"><i class="fa-solid fa-square-check"></i> Select messages</a>
                                 <a href="#" onclick="alert('Muted Notifications')"><i class="fa-solid fa-bell-slash"></i> Mute notifications</a>
-                                <a href="#" onclick="alert('Disappearing Messages')"><i class="fa-solid fa-clock-rotate-left"></i> Disappearing messages</a>
-                                <a href="#" onclick="alert('Added to Favourites')"><i class="fa-solid fa-heart"></i> Add to favourites</a>
-                                <hr>
-                                <a href="#" onclick="alert('Blocked User')" class="text-danger"><i class="fa-solid fa-ban"></i> Block</a>
                                 <a href="#" onclick="clearCurrentChat()" class="text-danger"><i class="fa-solid fa-broom"></i> Clear chat</a>
-                                <a href="#" onclick="clearCurrentChat()" class="text-danger"><i class="fa-solid fa-trash"></i> Delete chat</a>
                             </div>
                         </div>
                     </div>
@@ -134,20 +172,23 @@
                     <emoji-picker></emoji-picker>
                 </div>
 
+                <!-- Bottom Chat Bar: Emoji, Message, Paperclip, Camera, Mic & Send -->
                 <div class="chat-input-area">
                     <button class="icon-btn" onclick="toggleEmojiPicker()"><i class="fa-regular fa-face-smile"></i></button>
                     
+                    <input type="text" id="message-input" placeholder="Message..." oninput="sendTypingStatus()" onkeypress="handleKeyPress(event)" />
+
                     <label for="file-upload" class="icon-btn" style="cursor: pointer;">
                         <i class="fa-solid fa-paperclip"></i>
                     </label>
                     <input type="file" id="file-upload" style="display: none;" onchange="uploadFile()" />
 
+                    <button class="icon-btn" title="Camera"><i class="fa-solid fa-camera"></i></button>
+
                     <div id="recording-status" class="recording-status" style="display: none;">
                         <span class="rec-dot"></span>
                         <span id="rec-timer">00:00</span>
                     </div>
-
-                    <input type="text" id="message-input" placeholder="Type a message (Use @ai for Nexus AI)..." oninput="sendTypingStatus()" onkeypress="handleKeyPress(event)" />
                     
                     <button class="icon-btn" id="record-btn" onclick="toggleRecording()"><i class="fa-solid fa-microphone"></i></button>
                     <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
@@ -178,5 +219,12 @@
     <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
 
     <script src="/static/js/main.js"></script>
+
+    <!-- Keep Alive Script to Prevent Render App Delay -->
+    <script>
+        setInterval(() => {
+            fetch('/health').catch(() => {});
+        }, 60000); // Auto ping every 60 seconds
+    </script>
 </body>
 </html>
