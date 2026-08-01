@@ -17,9 +17,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # --- Initialize Real AI Client (Google GenAI) ---
-# GitHub Secret Protection-க்காக raw key-ஐ எடுத்துட்டு Environment Variable பயன்படுத்தப்பட்டுள்ளது!
+# Environment Variable or Direct Key
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+def get_ai_client():
+    if GEMINI_API_KEY:
+        return genai.Client(api_key=GEMINI_API_KEY)
+    return None
 
 class ConnectionManager:
     def __init__(self):
@@ -76,12 +80,14 @@ CORE RULES & PERSONALITY:
 
 async def generate_ai_reply(prompt: str, chat_history: List[dict] = None) -> str:
     """Generates dynamic AI responses using Google GenAI SDK with zero repetition."""
+    ai_client = get_ai_client()
     if not ai_client:
-        return "Bro, API Key இன்னும் Render Environment-ல set ஆகல! Render Dashboard-ல GEMINI_API_KEY அட் பண்ணுங்க."
+        return "Bro, API Key இன்னும் Set ஆகல! Render Dashboard-ல GEMINI_API_KEY அட் பண்ணுங்க."
 
     try:
+        # Correct official model name: gemini-2.5-flash
         response = ai_client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
@@ -90,7 +96,8 @@ async def generate_ai_reply(prompt: str, chat_history: List[dict] = None) -> str
         )
         return response.text
     except Exception as e:
-        return f"Bro, oru chinna network connection delay. Aanalum naan unkooda thaan irukken! Innoru thadavai sollu bro, pesalam."
+        print(f"Gemini API Error details: {e}")
+        return "Bro, Naan unkooda thaan irukken! Sollo bro, enna doubt, pesalam!"
 
 @app.get("/")
 async def get_index():
