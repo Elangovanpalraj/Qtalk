@@ -10,7 +10,7 @@
 <body>
     <div class="app-container">
         
-        <!-- Mobile Header View (Real WhatsApp Mobile Top) -->
+        <!-- Mobile Header View -->
         <div class="mobile-header">
             <h1 class="brand-title">WhatsApp</h1>
             <div class="header-actions">
@@ -20,7 +20,7 @@
             </div>
         </div>
 
-        <!-- 1. Far-Left Vertical Navigation Bar (Desktop Only) -->
+        <!-- Left Nav (Desktop Only) -->
         <div class="left-nav desktop-only">
             <div class="top-icons">
                 <button class="nav-btn active" title="Chats"><i class="fa-solid fa-message"></i></button>
@@ -36,7 +36,7 @@
             </div>
         </div>
 
-        <!-- 2. Contacts Sidebar Panel -->
+        <!-- Sidebar Panel -->
         <div class="sidebar">
 
             <!-- Profile Slide-In Drawer -->
@@ -80,11 +80,11 @@
                 <button onclick="connectUser()">Connect</button>
             </div>
 
-            <!-- Search Bar & Filters -->
+            <!-- Search Bar -->
             <div class="search-container">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" placeholder="Ask Meta AI or Search" id="contactSearch" oninput="filterContacts()">
+                    <input type="text" placeholder="Ask Meta AI or Search" id="contactSearch">
                 </div>
                 <div class="filter-pills">
                     <button class="pill active">All</button>
@@ -95,7 +95,7 @@
             <!-- Contact List -->
             <ul class="contact-list" id="userList"></ul>
 
-            <!-- Mobile Bottom Navigation -->
+            <!-- Mobile Bottom Nav -->
             <div class="mobile-bottom-nav">
                 <div class="nav-item active"><i class="fa-solid fa-message"></i><span>Chats</span></div>
                 <div class="nav-item"><i class="fa-solid fa-circle-notch"></i><span>Updates</span></div>
@@ -178,7 +178,7 @@
         </div>
     </div>
 
-    <!-- Fullscreen Image Lightbox Modal -->
+    <!-- Lightbox Modal -->
     <div class="media-modal" id="mediaModal" onclick="closeMediaModal(event)">
         <div class="modal-content">
             <div class="modal-header">
