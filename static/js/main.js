@@ -78,15 +78,21 @@ async function loadUsers() {
     } catch (err) { console.error(err); }
 }
 
+/* 🟢 Fixed selectContact function for Mobile view */
 async function selectContact(username) {
     selectedUser = username;
     
     const mainChatArea = document.getElementById("mainChatArea");
+    const emptyState = document.getElementById("emptyState");
+    const activeWrapper = document.getElementById("activeChatWrapper");
+
+    // Hide empty state and show active chat always
+    if (emptyState) emptyState.style.display = "none";
+    if (activeWrapper) activeWrapper.style.display = "flex";
+
+    // Show mobile main-chat overlay
     if (window.innerWidth <= 768) {
         mainChatArea.classList.add("mobile-active");
-    } else {
-        document.getElementById("emptyState").style.display = "none";
-        document.getElementById("activeChatWrapper").style.display = "flex";
     }
 
     document.getElementById("chatWithTitle").innerText = username;
@@ -95,9 +101,15 @@ async function selectContact(username) {
 
     document.getElementById("chatBox").innerHTML = "";
 
-    const res = await fetch(`/messages/${currentUser}/${selectedUser}`);
-    const history = await res.json();
-    history.forEach(m => appendMessage(m.sender, m.message, m.file_url, m.timestamp, m.id));
+    try {
+        const res = await fetch(`/messages/${currentUser}/${selectedUser}`);
+        const history = await res.json();
+        if (Array.isArray(history)) {
+            history.forEach(m => appendMessage(m.sender, m.message, m.file_url, m.timestamp, m.id));
+        }
+    } catch (e) {
+        console.error("Error fetching messages:", e);
+    }
     
     loadUsers();
 }
