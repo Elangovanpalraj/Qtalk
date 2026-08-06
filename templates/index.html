@@ -10,8 +10,18 @@
 <body>
     <div class="app-container">
         
-        <!-- 1. Far-Left Vertical Navigation Bar -->
-        <div class="left-nav">
+        <!-- Mobile Header View (Real WhatsApp Mobile Top) -->
+        <div class="mobile-header">
+            <h1 class="brand-title">WhatsApp</h1>
+            <div class="header-actions">
+                <i class="fa-solid fa-qrcode"></i>
+                <i class="fa-solid fa-camera"></i>
+                <i class="fa-solid fa-ellipsis-vertical"></i>
+            </div>
+        </div>
+
+        <!-- 1. Far-Left Vertical Navigation Bar (Desktop Only) -->
+        <div class="left-nav desktop-only">
             <div class="top-icons">
                 <button class="nav-btn active" title="Chats"><i class="fa-solid fa-message"></i></button>
                 <button class="nav-btn" title="Calls"><i class="fa-solid fa-phone"></i></button>
@@ -20,7 +30,7 @@
             </div>
             <div class="bottom-icons">
                 <button class="nav-btn" onclick="toggleTheme()" title="Settings"><i class="fa-solid fa-gear"></i></button>
-                <div class="profile-avatar-small" title="Profile">
+                <div class="profile-avatar-small" onclick="openProfileDrawer()" title="Profile">
                     <img src="https://ui-avatars.com/api/?name=User&background=0D8ABC&color=fff" id="navAvatar" alt="User">
                 </div>
             </div>
@@ -28,7 +38,35 @@
 
         <!-- 2. Contacts Sidebar Panel -->
         <div class="sidebar">
-            <div class="sidebar-header">
+
+            <!-- Profile Slide-In Drawer -->
+            <div class="profile-drawer" id="profileDrawer">
+                <div class="drawer-header">
+                    <button class="icon-btn-ghost" onclick="closeProfileDrawer()"><i class="fa-solid fa-arrow-left"></i></button>
+                    <h3>Profile</h3>
+                </div>
+                <div class="drawer-body">
+                    <div class="profile-pic-container">
+                        <img src="https://ui-avatars.com/api/?name=User&background=0D8ABC&color=fff" id="drawerAvatar" alt="Profile">
+                    </div>
+                    <div class="profile-field">
+                        <label>Your Name</label>
+                        <div class="field-input">
+                            <input type="text" id="profileName" value="User">
+                            <i class="fa-solid fa-pen"></i>
+                        </div>
+                    </div>
+                    <div class="profile-field">
+                        <label>About</label>
+                        <div class="field-input">
+                            <input type="text" id="profileAbout" value="Available">
+                            <i class="fa-solid fa-pen"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-header desktop-only">
                 <h2>Chats</h2>
                 <div class="header-actions">
                     <button class="icon-btn-ghost" title="New Chat"><i class="fa-solid fa-square-plus"></i></button>
@@ -46,7 +84,7 @@
             <div class="search-container">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" placeholder="Search or start a new chat" id="contactSearch" oninput="filterContacts()">
+                    <input type="text" placeholder="Ask Meta AI or Search" id="contactSearch" oninput="filterContacts()">
                 </div>
                 <div class="filter-pills">
                     <button class="pill active">All</button>
@@ -56,22 +94,25 @@
 
             <!-- Contact List -->
             <ul class="contact-list" id="userList"></ul>
+
+            <!-- Mobile Bottom Navigation -->
+            <div class="mobile-bottom-nav">
+                <div class="nav-item active"><i class="fa-solid fa-message"></i><span>Chats</span></div>
+                <div class="nav-item"><i class="fa-solid fa-circle-notch"></i><span>Updates</span></div>
+                <div class="nav-item"><i class="fa-solid fa-users"></i><span>Communities</span></div>
+                <div class="nav-item"><i class="fa-solid fa-phone"></i><span>Calls</span></div>
+            </div>
         </div>
 
         <!-- 3. Main Chat View -->
         <div class="main-chat" id="mainChatArea">
             
-            <!-- Default Landing Screen (No Chat Selected) -->
-            <div class="empty-state" id="emptyState">
+            <!-- Default Landing Screen -->
+            <div class="empty-state desktop-only" id="emptyState">
                 <div class="empty-content">
                     <i class="fa-brands fa-whatsapp whatsapp-big-icon"></i>
                     <h2>WhatsApp Web for Quantum Connect</h2>
                     <p>Send and receive messages seamlessly with real-time connectivity.</p>
-                    <div class="quick-actions">
-                        <div class="action-card"><i class="fa-solid fa-file"></i><span>Send document</span></div>
-                        <div class="action-card"><i class="fa-solid fa-user-plus"></i><span>Add contact</span></div>
-                        <div class="action-card"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Ask AI</span></div>
-                    </div>
                 </div>
             </div>
 
@@ -79,6 +120,7 @@
             <div class="active-chat-wrapper" id="activeChatWrapper" style="display: none;">
                 <!-- Chat Header -->
                 <div class="chat-header">
+                    <button class="back-btn mobile-only" onclick="closeChatMobile()"><i class="fa-solid fa-arrow-left"></i></button>
                     <div class="chat-header-info">
                         <img src="https://ui-avatars.com/api/?name=Contact&background=random" id="activeAvatar" alt="Avatar">
                         <div>
@@ -92,7 +134,6 @@
                         <button class="icon-btn-ghost"><i class="fa-solid fa-magnifying-glass"></i></button>
                         <button class="icon-btn-ghost" onclick="toggleChatMenu()"><i class="fa-solid fa-ellipsis-vertical"></i></button>
                         
-                        <!-- Header Options Menu Dropdown -->
                         <div class="chat-dropdown" id="chatDropdown">
                             <ul>
                                 <li><i class="fa-solid fa-user"></i> Contact info</li>
@@ -103,16 +144,22 @@
                     </div>
                 </div>
 
-                <!-- Chat Box Area with WhatsApp Wallpaper Pattern -->
+                <!-- Chat Box Area -->
                 <div class="chat-box" id="chatBox"></div>
 
-                <!-- Attachment Menu Modal/Popup -->
+                <!-- Attachment Menu Modal -->
                 <div class="attachment-menu" id="attachMenu">
                     <div class="attach-item" onclick="triggerFileInput()"><i class="fa-solid fa-file-lines doc-icon"></i> Document</div>
                     <div class="attach-item" onclick="triggerFileInput()"><i class="fa-solid fa-image img-icon"></i> Photos & videos</div>
                     <div class="attach-item"><i class="fa-solid fa-camera cam-icon"></i> Camera</div>
                     <div class="attach-item"><i class="fa-solid fa-headphones audio-icon"></i> Audio</div>
-                    <div class="attach-item"><i class="fa-solid fa-user contact-icon"></i> Contact</div>
+                </div>
+
+                <!-- Emoji Picker Box -->
+                <div class="emoji-picker-box" id="emojiPicker">
+                    <span>😀</span><span>😂</span><span>😍</span><span>😎</span><span>🙏</span>
+                    <span>🔥</span><span>👍</span><span>❤️</span><span>🎉</span><span>😊</span>
+                    <span>🥳</span><span>😭</span><span>🤔</span><span>✨</span><span>🚀</span>
                 </div>
 
                 <!-- Input Footer -->
@@ -120,8 +167,8 @@
                     <button class="icon-btn-ghost" onclick="toggleAttachMenu()" title="Attach"><i class="fa-solid fa-plus"></i></button>
                     <input type="file" id="fileInput" style="display: none;" onchange="sendFile(event)">
                     
-                    <button class="icon-btn-ghost" title="Emoji"><i class="fa-regular fa-face-smile"></i></button>
-                    <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="handleKeyPress(event)">
+                    <button class="icon-btn-ghost" onclick="toggleEmojiPicker()" title="Emoji"><i class="fa-regular fa-face-smile"></i></button>
+                    <input type="text" id="messageInput" placeholder="Message..." onkeypress="handleKeyPress(event)">
                     
                     <button class="icon-btn-ghost" id="recordBtn" onclick="toggleRecord()" title="Voice Note"><i class="fa-solid fa-microphone"></i></button>
                     <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
@@ -131,9 +178,18 @@
         </div>
     </div>
 
-    <!-- Notification Sound -->
-    <audio id="notifSound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
+    <!-- Fullscreen Image Lightbox Modal -->
+    <div class="media-modal" id="mediaModal" onclick="closeMediaModal(event)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <a id="downloadMediaBtn" href="#" download class="modal-btn"><i class="fa-solid fa-download"></i></a>
+                <button class="modal-btn" onclick="closeMediaModal(event)"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <img id="modalImg" src="" alt="Full View">
+        </div>
+    </div>
 
+    <audio id="notifSound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
     <script src="/static/js/main.js"></script>
 </body>
 </html>
