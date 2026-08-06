@@ -1,5 +1,9 @@
 fastapi
 uvicorn[standard]
-python-multipart
+sqlalchemy
+psycopg2-binary
 websockets
-google-genai
+python-multipart
+pydantic
+pytest
+httpx
