@@ -10,8 +10,9 @@ async function connectUser() {
     currentUser = document.getElementById("currentUser").value.trim();
     if (!currentUser) return alert("Enter your name or phone number!");
 
-    // Update avatar text
-    document.getElementById("navAvatar").src = `https://ui-avatars.com/api/?name=${currentUser}&background=0D8ABC&color=fff`;
+    const avatar = `https://ui-avatars.com/api/?name=${currentUser}&background=0D8ABC&color=fff`;
+    document.getElementById("navAvatar").src = avatar;
+    document.getElementById("drawerAvatar").src = avatar;
 
     if (socket) socket.close();
 
@@ -71,7 +72,7 @@ async function loadUsers() {
                     </div>
                 `;
                 li.onclick = () => selectContact(u.username);
-                list.appendChild(list.contains(li) ? li : li);
+                list.appendChild(li);
             }
         });
     } catch (err) { console.error(err); }
@@ -80,9 +81,13 @@ async function loadUsers() {
 async function selectContact(username) {
     selectedUser = username;
     
-    // Toggle main chat view
-    document.getElementById("emptyState").style.display = "none";
-    document.getElementById("activeChatWrapper").style.display = "flex";
+    const mainChatArea = document.getElementById("mainChatArea");
+    if (window.innerWidth <= 768) {
+        mainChatArea.classList.add("mobile-active");
+    } else {
+        document.getElementById("emptyState").style.display = "none";
+        document.getElementById("activeChatWrapper").style.display = "flex";
+    }
 
     document.getElementById("chatWithTitle").innerText = username;
     document.getElementById("activeAvatar").src = `https://ui-avatars.com/api/?name=${username}&background=random`;
@@ -95,6 +100,10 @@ async function selectContact(username) {
     history.forEach(m => appendMessage(m.sender, m.message, m.file_url, m.timestamp, m.id));
     
     loadUsers();
+}
+
+function closeChatMobile() {
+    document.getElementById("mainChatArea").classList.remove("mobile-active");
 }
 
 function updateChatHeaderStatus() {
@@ -118,7 +127,44 @@ function sendMessage() {
             file_url: ""
         }));
         input.value = "";
+        document.getElementById("emojiPicker").style.display = "none";
     }
+}
+
+/* Emoji Picker Feature */
+function toggleEmojiPicker() {
+    const box = document.getElementById("emojiPicker");
+    box.style.display = box.style.display === "grid" ? "none" : "grid";
+}
+
+document.querySelectorAll(".emoji-picker-box span").forEach(emoji => {
+    emoji.onclick = () => {
+        document.getElementById("messageInput").value += emoji.innerText;
+    };
+});
+
+/* Fullscreen Media Viewer Feature */
+function openMediaModal(imgUrl) {
+    const modal = document.getElementById("mediaModal");
+    const modalImg = document.getElementById("modalImg");
+    const downloadBtn = document.getElementById("downloadMediaBtn");
+
+    modalImg.src = imgUrl;
+    downloadBtn.href = imgUrl;
+    modal.style.display = "flex";
+}
+
+function closeMediaModal(e) {
+    document.getElementById("mediaModal").style.display = "none";
+}
+
+/* Profile Drawer Feature */
+function openProfileDrawer() {
+    document.getElementById("profileDrawer").classList.add("open");
+}
+
+function closeProfileDrawer() {
+    document.getElementById("profileDrawer").classList.remove("open");
 }
 
 function toggleAttachMenu() {
@@ -204,7 +250,7 @@ function appendMessage(sender, text, fileUrl, timestamp, msgId) {
         if (fileUrl.endsWith(".webm") || fileUrl.endsWith(".mp3") || fileUrl.endsWith(".wav")) {
             content += `<audio controls src="${fileUrl}"></audio>`;
         } else if (fileUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-            content += `<img src="${fileUrl}" alt="image" />`;
+            content += `<img src="${fileUrl}" onclick="openMediaModal('${fileUrl}')" alt="image" />`;
         } else {
             content += `<a href="${fileUrl}" target="_blank" style="color: #00a884;">📄 View Document</a>`;
         }
