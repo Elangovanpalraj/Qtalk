@@ -1,296 +1,82 @@
-let currentUser = "";
+let currentUserPhone = "";
 let selectedUser = "";
 let socket = null;
-let onlineUsers = [];
-let mediaRecorder = null;
-let audioChunks = [];
-let isRecording = false;
 
-async function connectUser() {
-    currentUser = document.getElementById("currentUser").value.trim();
-    if (!currentUser) return alert("Enter your name or phone number!");
-
-    const avatar = `https://ui-avatars.com/api/?name=${currentUser}&background=0D8ABC&color=fff`;
-    document.getElementById("navAvatar").src = avatar;
-    document.getElementById("drawerAvatar").src = avatar;
-
-    if (socket) socket.close();
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUser}`);
-
-    socket.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === "status_update") {
-            onlineUsers = data.online_users;
-            loadUsers();
-            updateChatHeaderStatus();
-        } 
-        else if (data.type === "message") {
-            if (data.sender === selectedUser || data.sender === currentUser) {
-                appendMessage(data.sender, data.message, data.file_url, data.timestamp, data.id);
-            }
-            if (data.sender !== currentUser) {
-                document.getElementById("notifSound").play().catch(() => {});
-            }
-        }
-    };
-
-    loadUsers();
+// Send OTP Simulation (Replace with Firebase API in production)
+function sendOTP() {
+    const phone = document.getElementById("userPhone").value.trim();
+    if (!phone || phone.length < 10) return alert("Please enter a valid phone number!");
+    
+    currentUserPhone = phone;
+    document.getElementById("phoneStep").style.display = "none";
+    document.getElementById("otpStep").style.display = "block";
+    alert("OTP sent! (Use default OTP: 123456)");
 }
 
-async function loadUsers() {
+// Verify OTP & Login
+function verifyOTP() {
+    const otp = document.getElementById("otpCode").value.trim();
+    if (otp !== "123456") return alert("Invalid OTP code!");
+
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("appContainer").style.display = "flex";
+    
+    connectWebSocket();
+    loadContacts();
+}
+
+function connectWebSocket() {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUserPhone}`);
+    
+    socket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        if (data.type === "message" && (data.sender === selectedUser || data.sender === currentUserPhone)) {
+            appendMessage(data.sender, data.message, data.file_url, data.timestamp);
+        }
+    };
+}
+
+// Fetch Contacts from Database
+async function loadContacts() {
     try {
-        const res = await fetch("/users");
-        const users = await res.json();
+        const res = await fetch(`/contacts/${currentUserPhone}`);
+        const contacts = await res.json();
         const list = document.getElementById("userList");
         list.innerHTML = "";
-        
-        users.forEach(u => {
-            if(u.username !== currentUser && u.phone !== currentUser) {
-                const li = document.createElement("li");
-                li.className = `contact-item ${selectedUser === u.username ? 'active' : ''}`;
-                
-                const isOnline = onlineUsers.includes(u.username) || onlineUsers.includes(u.phone);
-                const badgeClass = isOnline ? "online" : "offline";
-                const avatarUrl = `https://ui-avatars.com/api/?name=${u.username}&background=random`;
 
-                li.innerHTML = `
-                    <div class="contact-avatar">
-                        <img src="${avatarUrl}" alt="${u.username}">
-                        <span class="badge ${badgeClass}"></span>
-                    </div>
-                    <div class="contact-info">
-                        <div class="contact-top">
-                            <span>${u.username}</span>
-                            <span style="font-size:0.7rem; font-weight:normal; color:#8696a0;">12:45 PM</span>
-                        </div>
-                        <div class="contact-bottom">
-                            <span class="last-msg">${isOnline ? 'Online' : 'Click to chat'}</span>
-                        </div>
-                    </div>
-                `;
-                li.onclick = () => selectContact(u.username);
-                list.appendChild(li);
-            }
+        contacts.forEach(c => {
+            const li = document.createElement("li");
+            li.className = "contact-item";
+            li.innerHTML = `
+                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${c.name}"></div>
+                <div class="contact-info">
+                    <div class="contact-top"><span>${c.name}</span></div>
+                    <div class="contact-bottom"><span>${c.phone}</span></div>
+                </div>
+            `;
+            li.onclick = () => selectContact(c.phone, c.name);
+            list.appendChild(li);
         });
     } catch (err) { console.error(err); }
 }
 
-/* 🟢 Fixed selectContact function for Mobile view */
-async function selectContact(username) {
-    selectedUser = username;
+// Add New Contact Dynamic Check
+async function promptAddContact() {
+    const phone = prompt("Enter User Phone Number:");
+    if (!phone) return;
+
+    const res = await fetch("/contacts/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_phone: currentUserPhone, contact_phone: phone })
+    });
     
-    const mainChatArea = document.getElementById("mainChatArea");
-    const emptyState = document.getElementById("emptyState");
-    const activeWrapper = document.getElementById("activeChatWrapper");
-
-    // Hide empty state and show active chat always
-    if (emptyState) emptyState.style.display = "none";
-    if (activeWrapper) activeWrapper.style.display = "flex";
-
-    // Show mobile main-chat overlay
-    if (window.innerWidth <= 768) {
-        mainChatArea.classList.add("mobile-active");
-    }
-
-    document.getElementById("chatWithTitle").innerText = username;
-    document.getElementById("activeAvatar").src = `https://ui-avatars.com/api/?name=${username}&background=random`;
-    updateChatHeaderStatus();
-
-    document.getElementById("chatBox").innerHTML = "";
-
-    try {
-        const res = await fetch(`/messages/${currentUser}/${selectedUser}`);
-        const history = await res.json();
-        if (Array.isArray(history)) {
-            history.forEach(m => appendMessage(m.sender, m.message, m.file_url, m.timestamp, m.id));
-        }
-    } catch (e) {
-        console.error("Error fetching messages:", e);
-    }
-    
-    loadUsers();
-}
-
-function closeChatMobile() {
-    document.getElementById("mainChatArea").classList.remove("mobile-active");
-}
-
-function updateChatHeaderStatus() {
-    if (!selectedUser) return;
-    const isOnline = onlineUsers.includes(selectedUser);
-    document.getElementById("chatStatusText").innerText = isOnline ? "online" : "offline";
-}
-
-function sendMessage() {
-    const input = document.getElementById("messageInput");
-    const text = input.value.trim();
-
-    if (!selectedUser) return alert("Select a contact first!");
-    if (!text) return;
-
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: "message",
-            receiver: selectedUser,
-            message: text,
-            file_url: ""
-        }));
-        input.value = "";
-        document.getElementById("emojiPicker").style.display = "none";
-    }
-}
-
-/* Emoji Picker Feature */
-function toggleEmojiPicker() {
-    const box = document.getElementById("emojiPicker");
-    box.style.display = box.style.display === "grid" ? "none" : "grid";
-}
-
-document.querySelectorAll(".emoji-picker-box span").forEach(emoji => {
-    emoji.onclick = () => {
-        document.getElementById("messageInput").value += emoji.innerText;
-    };
-});
-
-/* Fullscreen Media Viewer Feature */
-function openMediaModal(imgUrl) {
-    const modal = document.getElementById("mediaModal");
-    const modalImg = document.getElementById("modalImg");
-    const downloadBtn = document.getElementById("downloadMediaBtn");
-
-    modalImg.src = imgUrl;
-    downloadBtn.href = imgUrl;
-    modal.style.display = "flex";
-}
-
-function closeMediaModal(e) {
-    document.getElementById("mediaModal").style.display = "none";
-}
-
-/* Profile Drawer Feature */
-function openProfileDrawer() {
-    document.getElementById("profileDrawer").classList.add("open");
-}
-
-function closeProfileDrawer() {
-    document.getElementById("profileDrawer").classList.remove("open");
-}
-
-function toggleAttachMenu() {
-    const menu = document.getElementById("attachMenu");
-    menu.style.display = menu.style.display === "flex" ? "none" : "flex";
-}
-
-function triggerFileInput() {
-    document.getElementById("fileInput").click();
-    document.getElementById("attachMenu").style.display = "none";
-}
-
-async function sendFile(event) {
-    const file = event.target.files[0];
-    if (!file || !selectedUser) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const res = await fetch("/upload", { method: "POST", body: formData });
-    const data = await res.json();
-
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: "message",
-            receiver: selectedUser,
-            message: "",
-            file_url: data.file_url
-        }));
-    }
-    event.target.value = "";
-}
-
-async function toggleRecord() {
-    const btn = document.getElementById("recordBtn");
-    if (!selectedUser) return alert("Select a contact first!");
-
-    if (!isRecording) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-
-        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-            const file = new File([audioBlob], "voice_note.webm", { type: "audio/webm" });
-            
-            const formData = new FormData();
-            formData.append("file", file);
-
-            const res = await fetch("/upload", { method: "POST", body: formData });
-            const data = await res.json();
-
-            socket.send(JSON.stringify({
-                type: "message",
-                receiver: selectedUser,
-                message: "",
-                file_url: data.file_url
-            }));
-        };
-
-        mediaRecorder.start();
-        isRecording = true;
-        btn.style.color = "#ef4444";
+    const result = await res.json();
+    if (result.success) {
+        alert("Contact added!");
+        loadContacts();
     } else {
-        mediaRecorder.stop();
-        isRecording = false;
-        btn.style.color = "#aebac1";
+        alert(result.message || "User not registered on Qtalk!");
     }
 }
-
-function appendMessage(sender, text, fileUrl, timestamp, msgId) {
-    const box = document.getElementById("chatBox");
-    const div = document.createElement("div");
-    const isSent = sender === currentUser;
-    div.classList.add("msg", isSent ? "sent" : "received");
-    if (msgId) div.id = `msg-${msgId}`;
-
-    let content = "";
-    if (text) content += `<div>${text}</div>`;
-    
-    if (fileUrl) {
-        if (fileUrl.endsWith(".webm") || fileUrl.endsWith(".mp3") || fileUrl.endsWith(".wav")) {
-            content += `<audio controls src="${fileUrl}"></audio>`;
-        } else if (fileUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-            content += `<img src="${fileUrl}" onclick="openMediaModal('${fileUrl}')" alt="image" />`;
-        } else {
-            content += `<a href="${fileUrl}" target="_blank" style="color: #00a884;">📄 View Document</a>`;
-        }
-    }
-
-    const timeStr = timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    content += `<div class="msg-meta">
-                    <span>${timeStr}</span>
-                    ${isSent ? '<i class="fa-solid fa-check-double blue-tick"></i>' : ''}
-                </div>`;
-
-    div.innerHTML = content;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-function toggleChatMenu() {
-    const dropdown = document.getElementById("chatDropdown");
-    dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
-}
-
-function toggleTheme() {
-    document.body.classList.toggle("light-mode");
-}
-
-function handleKeyPress(e) {
-    if (e.key === 'Enter') sendMessage();
-}
-
-window.onload = loadUsers;
