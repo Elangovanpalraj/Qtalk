@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Qtalk</title>
+    <!-- Stylesheets -->
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" type="image/png" href="/static/images/icon.png">
@@ -52,7 +53,7 @@
                 <button class="nav-btn" title="Calls"><i class="fa-solid fa-phone"></i></button>
             </div>
             <div class="bottom-icons">
-                <div class="profile-avatar-small" onclick="openProfileDrawer()" title="Profile">
+                <div class="profile-avatar-small" onclick="toggleProfileDrawer()" title="Profile">
                     <img src="https://ui-avatars.com/api/?name=User" id="navAvatar" alt="User">
                 </div>
             </div>
@@ -60,6 +61,35 @@
 
         <!-- Sidebar Panel -->
         <div class="sidebar">
+            
+            <!-- Slide-in Profile Drawer -->
+            <div class="profile-drawer" id="profileDrawer">
+                <div class="drawer-header">
+                    <i class="fa-solid fa-arrow-left" style="cursor: pointer;" onclick="toggleProfileDrawer()"></i>
+                    <h3>Profile</h3>
+                </div>
+                <div class="drawer-body">
+                    <div class="profile-pic-container">
+                        <img src="https://ui-avatars.com/api/?name=User" id="profileDrawerImg" alt="Profile Picture">
+                    </div>
+                    <div class="profile-field">
+                        <label>Your Name</label>
+                        <div class="field-input">
+                            <input type="text" value="User Name" id="profileNameInput">
+                            <i class="fa-solid fa-pen"></i>
+                        </div>
+                    </div>
+                    <div class="profile-field">
+                        <label>About</label>
+                        <div class="field-input">
+                            <input type="text" value="Hey there! I am using Qtalk." id="profileAboutInput">
+                            <i class="fa-solid fa-pen"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Header -->
             <div class="sidebar-header desktop-only">
                 <h2>Qtalk Chats</h2>
                 <div class="header-actions">
@@ -67,44 +97,131 @@
                 </div>
             </div>
 
-            <!-- Search Bar -->
+            <!-- Search Bar & Filters -->
             <div class="search-container">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" placeholder="Search contacts..." id="contactSearch">
+                    <input type="text" placeholder="Search or start new chat..." id="contactSearch">
+                </div>
+                <div class="filter-pills">
+                    <button class="pill active">All</button>
+                    <button class="pill">Unread</button>
+                    <button class="pill">Groups</button>
                 </div>
             </div>
 
-            <!-- Real Contact List -->
-            <ul class="contact-list" id="userList"></ul>
+            <!-- Contact List -->
+            <ul class="contact-list" id="userList">
+                <li class="contact-item active" onclick="openChatMobile()">
+                    <div class="contact-avatar">
+                        <img src="https://ui-avatars.com/api/?name=John+Doe" alt="John Doe">
+                        <span class="badge online"></span>
+                    </div>
+                    <div class="contact-info">
+                        <div class="contact-top">
+                            <span>John Doe</span>
+                            <span style="font-size: 0.75rem; color: #8696a0;">10:45 AM</span>
+                        </div>
+                        <div class="contact-bottom">
+                            <span class="last-msg">Hey! CSS is fixed now 🔥</span>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+
+            <!-- Mobile Bottom Nav -->
+            <div class="mobile-bottom-nav">
+                <div class="nav-item active">
+                    <i class="fa-solid fa-message"></i>
+                    <span>Chats</span>
+                </div>
+                <div class="nav-item">
+                    <i class="fa-solid fa-phone"></i>
+                    <span>Calls</span>
+                </div>
+                <div class="nav-item" onclick="toggleProfileDrawer()">
+                    <i class="fa-solid fa-user"></i>
+                    <span>Profile</span>
+                </div>
+            </div>
         </div>
 
-        <!-- Main Chat View -->
+        <!-- Main Chat Area -->
         <div class="main-chat" id="mainChatArea">
+            
+            <!-- Desktop Empty State -->
             <div class="empty-state desktop-only" id="emptyState">
                 <div class="empty-content">
-                    <img src="/static/images/icon.png" width="80" alt="Qtalk Logo">
+                    <i class="fa-brands fa-whatsapp whatsapp-big-icon"></i>
                     <h2>Qtalk Desktop</h2>
-                    <p>Select a contact to start messaging securely.</p>
+                    <p>Select a contact to start messaging securely across all your devices.</p>
                 </div>
             </div>
 
             <!-- Active Chat View -->
-            <div class="active-chat-wrapper" id="activeChatWrapper" style="display: none;">
+            <div class="active-chat-wrapper" id="activeChatWrapper" style="display: flex;">
                 <div class="chat-header">
-                    <button class="back-btn mobile-only" onclick="closeChatMobile()"><i class="fa-solid fa-arrow-left"></i></button>
                     <div class="chat-header-info">
-                        <img src="" id="activeAvatar" alt="Avatar">
+                        <button class="back-btn mobile-only" onclick="closeChatMobile()"><i class="fa-solid fa-arrow-left"></i></button>
+                        <img src="https://ui-avatars.com/api/?name=John+Doe" id="activeAvatar" alt="Avatar">
                         <div>
-                            <h3 id="chatWithTitle">Contact Name</h3>
-                            <span class="status-subtitle" id="chatStatusText">Offline</span>
+                            <h3 id="chatWithTitle">John Doe</h3>
+                            <span class="status-subtitle" id="chatStatusText">Online</span>
+                        </div>
+                    </div>
+                    <div class="chat-header-actions">
+                        <button class="icon-btn-ghost"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        <button class="icon-btn-ghost" onclick="toggleDropdown()"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                        
+                        <!-- Options Dropdown -->
+                        <div class="chat-dropdown" id="chatDropdown">
+                            <ul>
+                                <li><i class="fa-solid fa-user"></i> Contact info</li>
+                                <li><i class="fa-solid fa-broom"></i> Clear messages</li>
+                                <li><i class="fa-solid fa-trash"></i> Delete chat</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
 
-                <div class="chat-box" id="chatBox"></div>
+                <!-- Chat Box Screen -->
+                <div class="chat-box" id="chatBox">
+                    <div class="msg received">
+                        Hey! How is the project setup going?
+                        <div class="msg-meta">10:42 AM</div>
+                    </div>
 
+                    <div class="msg sent">
+                        Working on perfecting the HTML and CSS right now!
+                        <div class="msg-meta">10:44 AM <i class="fa-solid fa-check-double blue-tick"></i></div>
+                    </div>
+
+                    <div class="msg sent">
+                        Hey! CSS is fixed now 🔥
+                        <div class="msg-meta">10:45 AM <i class="fa-solid fa-check-double blue-tick"></i></div>
+                    </div>
+                </div>
+
+                <!-- Attachment Popups -->
+                <div class="attachment-menu" id="attachMenu">
+                    <div class="attach-item"><i class="fa-solid fa-image" style="color: #bf59cf;"></i> Photos & Videos</div>
+                    <div class="attach-item"><i class="fa-solid fa-file" style="color: #5f66cd;"></i> Document</div>
+                    <div class="attach-item"><i class="fa-solid fa-camera" style="color: #ec407a;"></i> Camera</div>
+                </div>
+
+                <!-- Emoji Picker -->
+                <div class="emoji-picker-box" id="emojiBox">
+                    <span onclick="addEmoji('😊')">😊</span>
+                    <span onclick="addEmoji('😂')">😂</span>
+                    <span onclick="addEmoji('🔥')">🔥</span>
+                    <span onclick="addEmoji('👍')">👍</span>
+                    <span onclick="addEmoji('❤️')">❤️</span>
+                </div>
+
+                <!-- Chat Input Bar -->
                 <div class="chat-input-bar">
+                    <button class="icon-btn-ghost" onclick="toggleEmoji()"><i class="fa-regular fa-face-smile"></i></button>
+                    <button class="icon-btn-ghost" onclick="toggleAttach()"><i class="fa-solid fa-paperclip"></i></button>
                     <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="handleKeyPress(event)">
                     <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
@@ -112,6 +229,33 @@
         </div>
     </div>
 
+    <!-- UI Helper JS Script -->
+    <script>
+        function toggleProfileDrawer() {
+            document.getElementById('profileDrawer').classList.toggle('open');
+        }
+        function toggleAttach() {
+            const menu = document.getElementById('attachMenu');
+            menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+        }
+        function toggleEmoji() {
+            const box = document.getElementById('emojiBox');
+            box.style.display = box.style.display === 'grid' ? 'none' : 'grid';
+        }
+        function toggleDropdown() {
+            const drop = document.getElementById('chatDropdown');
+            drop.style.display = drop.style.display === 'block' ? 'none' : 'block';
+        }
+        function openChatMobile() {
+            document.getElementById('mainChatArea').classList.add('mobile-active');
+        }
+        function closeChatMobile() {
+            document.getElementById('mainChatArea').classList.remove('mobile-active');
+        }
+        function addEmoji(emoji) {
+            document.getElementById('messageInput').value += emoji;
+        }
+    </script>
     <script src="/static/js/main.js"></script>
 </body>
 </html>
