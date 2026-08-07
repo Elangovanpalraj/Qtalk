@@ -1,197 +1,190 @@
 let currentUserPhone = "";
 let selectedUser = "";
-let selectedUserName = "";
+let selectedGroupId = null;
 let socket = null;
+let typingTimeout = null;
+let replyMessageId = null;
+let mediaRecorder = null;
+let audioChunks = [];
 
-// 🟢 1. Send OTP Simulation
-function sendOTP() {
-    const phone = document.getElementById("userPhone").value.trim();
-    if (!phone || phone.length < 10) {
-        return alert("Please enter a valid phone number!");
-    }
-    
-    currentUserPhone = phone;
-    document.getElementById("phoneStep").style.display = "none";
-    document.getElementById("otpStep").style.display = "block";
-    alert("OTP sent! (Use default OTP: 123456)");
-}
-
-// 🟢 2. Verify OTP & Register User automatically in Database
+// 🟢 1. Verify OTP & Connect
 async function verifyOTP() {
     const otp = document.getElementById("otpCode").value.trim();
-    if (otp !== "123456") {
-        return alert("Invalid OTP code!");
-    }
+    if (otp !== "123456") return alert("Invalid OTP code!");
 
-    try {
-        // Register user in Backend DB upon verification
-        await fetch("/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                phone: currentUserPhone, 
-                name: "User " + currentUserPhone.slice(-4) 
-            })
-        });
-    } catch (err) {
-        console.error("Registration error:", err);
-    }
+    currentUserPhone = document.getElementById("userPhone").value.trim();
 
-    // Show Main App Screen
+    await fetch("/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: currentUserPhone, name: "User " + currentUserPhone.slice(-4) })
+    });
+
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("appContainer").style.display = "flex";
     
     connectWebSocket();
-    loadContacts();
+    loadContactsAndGroups();
 }
 
-// 🟢 3. Connect WebSocket for Real-time Messaging
+// 🟢 2. Real-Time Engine (WebSocket)
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUserPhone}`);
-    
+
     socket.onmessage = function(event) {
         const data = JSON.parse(event.data);
-        if (data.type === "message" && (data.sender === selectedUser || data.sender === currentUserPhone)) {
-            appendMessage(data.sender, data.message, data.file_url, data.timestamp);
-        }
-    };
 
-    socket.onclose = function() {
-        console.log("WebSocket disconnected. Retrying...");
-        setTimeout(connectWebSocket, 3000);
+        // A. Handle Incoming Messages
+        if (data.type === "new_message") {
+            if (data.sender === selectedUser || data.receiver === selectedUser || data.group_id === selectedGroupId) {
+                appendMessageToUI(data);
+                // Send Read Ack (Blue Tick Trigger)
+                socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+            }
+        }
+        // B. Handle Typing Status
+        else if (data.type === "typing" && data.sender === selectedUser) {
+            const statusElem = document.getElementById("chatStatusText");
+            if (statusElem) {
+                statusElem.innerText = data.is_typing ? "typing..." : "online";
+                statusElem.style.color = data.is_typing ? "#00a884" : "#8696a0";
+            }
+        }
+        // C. Read Ack Updates (Blue Ticks)
+        else if (data.type === "read_ack") {
+            data.message_ids.forEach(id => {
+                const tickElem = document.getElementById(`tick-${id}`);
+                if (tickElem) {
+                    tickElem.innerText = "✓✓";
+                    tickElem.style.color = "#53bdeb"; // Blue tick
+                }
+            });
+        }
+        // D. Emoji Reaction Updates
+        else if (data.type === "reaction") {
+            const msgElem = document.getElementById(`msg-${data.message_id}`);
+            if (msgElem) {
+                let reactBox = msgElem.querySelector(".reaction-badge");
+                if (!reactBox) {
+                    reactBox = document.createElement("span");
+                    reactBox.className = "reaction-badge";
+                    msgElem.appendChild(reactBox);
+                }
+                reactBox.innerText = data.emoji;
+            }
+        }
     };
 }
 
-// 🟢 4. Fetch Contact List
-async function loadContacts() {
-    try {
-        const res = await fetch(`/contacts/${currentUserPhone}`);
-        const contacts = await res.json();
-        const list = document.getElementById("userList");
-        list.innerHTML = "";
-
-        if (!contacts || contacts.length === 0) {
-            list.innerHTML = '<li style="padding:15px; color:#8696a0; text-align:center;">No contacts yet. Click + to add.</li>';
-            return;
-        }
-
-        contacts.forEach(c => {
-            const li = document.createElement("li");
-            li.className = `contact-item ${c.phone === selectedUser ? 'active' : ''}`;
-            li.innerHTML = `
-                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=00a884&color=fff"></div>
-                <div class="contact-info">
-                    <div class="contact-top"><span>${c.name}</span></div>
-                    <div class="contact-bottom"><span>${c.phone}</span></div>
-                </div>
-            `;
-            li.onclick = () => selectContact(c.phone, c.name);
-            list.appendChild(li);
-        });
-    } catch (err) { 
-        console.error("Error loading contacts:", err); 
-    }
-}
-
-// 🟢 5. Select Contact to Chat
-function selectContact(phone, name) {
-    selectedUser = phone;
-    selectedUserName = name;
-
-    const emptyState = document.getElementById("emptyState");
-    const activeChatWrapper = document.getElementById("activeChatWrapper");
+// 🟢 3. Typing Indicator Sender
+function handleTypingInput() {
+    if (!socket || !selectedUser) return;
+    socket.send(JSON.stringify({ type: "typing", receiver: selectedUser, is_typing: true }));
     
-    if (emptyState) emptyState.style.display = "none";
-    if (activeChatWrapper) activeChatWrapper.style.display = "flex";
-
-    document.getElementById("chatWithTitle").innerText = name;
-    document.getElementById("chatStatusText").innerText = phone;
-    document.getElementById("activeAvatar").src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff`;
-
-    const chatBox = document.getElementById("chatBox");
-    if (chatBox) chatBox.innerHTML = "";
-
-    loadContacts(); 
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+        socket.send(JSON.stringify({ type: "typing", receiver: selectedUser, is_typing: false }));
+    }, 2000);
 }
 
-// 🟢 6. Add Contact Dynamically
-async function promptAddContact() {
-    const phone = prompt("Enter User Phone Number:");
-    if (!phone) return;
-
-    if (phone.trim() === currentUserPhone) {
-        return alert("You cannot add your own phone number!");
-    }
-
-    try {
-        const res = await fetch("/contacts/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_phone: currentUserPhone, contact_phone: phone.trim() })
-        });
-        
-        const result = await res.json();
-        if (result.success) {
-            alert("Contact added successfully!");
-            loadContacts();
-        } else {
-            alert(result.message || "User not registered on Qtalk!");
-        }
-    } catch (err) {
-        console.error("Error adding contact:", err);
-        alert("Error connecting to server!");
-    }
-}
-
-// 🟢 7. Send Message
-function sendMessage() {
+// 🟢 4. Send Message (Supports Text, Voice, File, Reply)
+async function sendMessage(msgType = "text", fileUrl = null) {
     const input = document.getElementById("messageInput");
-    const message = input.value.trim();
+    const content = input ? input.value.trim() : "";
 
-    if (!message || !selectedUser || !socket) return;
+    if (!content && !fileUrl) return;
 
     const payload = {
         type: "message",
         receiver: selectedUser,
-        message: message
+        group_id: selectedGroupId,
+        msg_type: msgType,
+        content: content,
+        file_url: fileUrl,
+        reply_to_id: replyMessageId
     };
 
     socket.send(JSON.stringify(payload));
-    appendMessage(currentUserPhone, message, null, new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    input.value = "";
+    
+    if (input) input.value = "";
+    replyMessageId = null; // Reset quote reply
 }
 
-// 🟢 8. Append Message to Chat Window
-function appendMessage(sender, message, file_url = null, timestamp = "") {
+// 🟢 5. Voice Message Recorder Integration
+async function startVoiceRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const formData = new FormData();
+        formData.append("file", audioBlob, "voice_note.webm");
+
+        const res = await fetch("/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.file_url) {
+            sendMessage("voice", data.file_url);
+        }
+    };
+    mediaRecorder.start();
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder) mediaRecorder.stop();
+}
+
+// 🟢 6. Message UI Renderer (Status Ticks & Media Cards)
+function appendMessageToUI(msg) {
     const chatBox = document.getElementById("chatBox");
     if (!chatBox) return;
 
-    const isOutgoing = sender === currentUserPhone;
+    const isOutgoing = msg.sender === currentUserPhone;
     const msgDiv = document.createElement("div");
+    msgDiv.id = `msg-${msg.id}`;
     msgDiv.className = `message-bubble ${isOutgoing ? "outgoing" : "incoming"}`;
 
-    let content = `<div class="message-text">${message}</div>`;
-    if (file_url) {
-        content += `<div class="message-file"><a href="${file_url}" target="_blank">View Attachment</a></div>`;
+    // Tick Icon Logic
+    let tickHtml = "";
+    if (isOutgoing) {
+        let tickColor = msg.status === "read" ? "#53bdeb" : "#8696a0";
+        let tickSymbol = msg.status === "sent" ? "✓" : "✓✓";
+        tickHtml = `<span id="tick-${msg.id}" class="msg-tick" style="color:${tickColor}; margin-left:5px;">${tickSymbol}</span>`;
     }
-    content += `<div class="message-time">${timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
 
-    msgDiv.innerHTML = content;
+    // Media Rendering Logic
+    let bodyContent = `<div class="msg-text">${msg.content}</div>`;
+    if (msg.msg_type === "image") {
+        bodyContent = `<img src="${msg.file_url}" class="chat-img" /><div class="msg-text">${msg.content}</div>`;
+    } else if (msg.msg_type === "voice") {
+        bodyContent = `<audio controls src="${msg.file_url}"></audio>`;
+    } else if (msg.msg_type === "document") {
+        bodyContent = `<a href="${msg.file_url}" target="_blank" class="doc-link">📄 Download Document</a>`;
+    }
+
+    msgDiv.innerHTML = `
+        ${msg.reply_to_id ? `<div class="quoted-reply">Replying to #${msg.reply_to_id}</div>` : ''}
+        ${bodyContent}
+        <div class="msg-meta">
+            <span class="msg-time">${msg.timestamp}</span>
+            ${tickHtml}
+        </div>
+        <button onclick="reactToMessage(${msg.id}, '❤️')" class="react-btn">❤️</button>
+        <button onclick="reactToMessage(${msg.id}, '👍')" class="react-btn">👍</button>
+    `;
+
     chatBox.appendChild(msgDiv);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 🟢 9. Handle Enter Key Press
-function handleKeyPress(event) {
-    if (event.key === "Enter") {
-        sendMessage();
-    }
-}
-
-// 🟢 10. Mobile Navigation (Back Button)
-function closeChatMobile() {
-    const activeChatWrapper = document.getElementById("activeChatWrapper");
-    if (activeChatWrapper) activeChatWrapper.style.display = "none";
-    selectedUser = "";
+// 🟢 7. React to Message (Emoji)
+function reactToMessage(msgId, emoji) {
+    socket.send(JSON.stringify({
+        type: "reaction",
+        message_id: msgId,
+        emoji: emoji,
+        receiver: selectedUser
+    }));
 }
