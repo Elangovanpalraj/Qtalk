@@ -9,7 +9,7 @@ from app.database import get_db
 from app.chat.models import Message, MessageReaction, Group, GroupMember
 from app.chat.manager import manager
 
-router = APIRouter(prefix="", tags=["Chat Core"])
+router = APIRouter(prefix="/chat", tags=["Chat Core & Real-time"])
 
 
 # ------------------------------------------------------------------
