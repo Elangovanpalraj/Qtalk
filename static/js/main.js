@@ -48,7 +48,7 @@ async function encryptMessage(plaintext, secretKey) {
 
 // 🟢 Decryption Helper
 async function decryptMessage(encryptedStr, secretKey) {
-    if (!secretKey || !encryptedStr || !encryptedStr.startsWith("{")) return encryptedStr;
+    if (!secretKey || !encryptedStr || typeof encryptedStr !== 'string' || !encryptedStr.startsWith("{")) return encryptedStr;
     try {
         const encryptedObj = JSON.parse(encryptedStr);
         if (!encryptedObj.ciphertext || !encryptedObj.iv) return encryptedStr;
@@ -68,7 +68,7 @@ async function decryptMessage(encryptedStr, secretKey) {
     }
 }
 
-// 🟢 2. Send OTP (முக்கியமாக விடுபட்ட ஃபங்க்ஷன்!)
+// 🟢 2. Send OTP
 function sendOTP() {
     const phoneInput = document.getElementById("userPhone");
     const phone = phoneInput ? phoneInput.value.trim() : "";
@@ -79,8 +79,6 @@ function sendOTP() {
     }
 
     currentUserPhone = phone;
-
-    // UI Toggle: Phone Step மறைத்து, OTP Step-ஐ காண்பிக்கிறது
     document.getElementById("phoneStep").style.display = "none";
     document.getElementById("otpStep").style.display = "block";
     alert("OTP Sent successfully! (Default code: 123456)");
@@ -103,7 +101,6 @@ async function verifyOTP() {
         console.error("Registration error:", err);
     }
 
-    // Set Header & Nav Avatars
     const navAvatar = document.getElementById("navAvatar");
     if (navAvatar) {
         navAvatar.src = `https://ui-avatars.com/api/?name=${currentUserPhone.slice(-4)}&background=00a884&color=fff`;
@@ -127,12 +124,17 @@ function connectWebSocket() {
         const data = JSON.parse(event.data);
 
         if (data.type === "new_message") {
-            if (data.sender === selectedUser || data.receiver === selectedUser || data.group_id === selectedGroupId) {
+            // Check if message belongs to currently opened chat
+            if (data.sender === selectedUser || data.receiver === selectedUser || (data.group_id && data.group_id === selectedGroupId)) {
                 if (data.content) {
                     data.content = await decryptMessage(data.content, sharedCryptoKey);
                 }
                 appendMessageToUI(data);
-                socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                
+                // Mark as read if received from selected contact
+                if (data.sender === selectedUser) {
+                    socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                }
             }
         }
         else if (data.type === "typing" && data.sender === selectedUser) {
@@ -184,12 +186,16 @@ function handleTypingInput() {
     }, 2000);
 }
 
-// 🟢 6. Send Message Function
+// 🟢 6. Send Message Function (Duplicate Rendering Fix)
 async function sendMessage(msgType = "text", fileUrl = null) {
     const input = document.getElementById("messageInput");
     const plainText = input ? input.value.trim() : "";
 
     if (!plainText && !fileUrl) return;
+    if (!selectedUser && !selectedGroupId) {
+        alert("Please select a user to send message!");
+        return;
+    }
 
     let payloadContent = plainText;
     if (plainText) {
@@ -199,6 +205,7 @@ async function sendMessage(msgType = "text", fileUrl = null) {
 
     const payload = {
         type: "message",
+        sender: currentUserPhone,
         receiver: selectedUser,
         group_id: selectedGroupId,
         msg_type: msgType,
@@ -207,66 +214,118 @@ async function sendMessage(msgType = "text", fileUrl = null) {
         reply_to_id: replyMessageId
     };
 
+    // Send to WebSocket (Server will broadcast back to sender & receiver)
     socket.send(JSON.stringify(payload));
-
-    // Append to UI immediately
-    appendMessageToUI({
-        id: Date.now(),
-        sender: currentUserPhone,
-        content: plainText,
-        file_url: fileUrl,
-        msg_type: msgType,
-        status: "sent",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    });
 
     if (input) input.value = "";
     replyMessageId = null;
 }
 
-// 🟢 7. Append Message to UI
+// 🟢 7. Append Message to UI (WhatsApp Right/Left Alignment & Anti-Duplicate Fix)
 function appendMessageToUI(msg) {
     const chatBox = document.getElementById("chatBox");
     if (!chatBox) return;
 
-    const isOutgoing = msg.sender === currentUserPhone;
+    // Prevent Duplicate Message DOM injection
+    if (msg.id && document.getElementById(`msg-${msg.id}`)) {
+        return;
+    }
+
+    const isOutgoing = String(msg.sender) === String(currentUserPhone);
     const msgDiv = document.createElement("div");
-    msgDiv.id = `msg-${msg.id}`;
+    msgDiv.id = msg.id ? `msg-${msg.id}` : `msg-temp-${Date.now()}`;
+    
+    // Applying WhatsApp style bubble classes
     msgDiv.className = `message-bubble ${isOutgoing ? "outgoing" : "incoming"}`;
+    if (isOutgoing) {
+        msgDiv.style.marginLeft = "auto";
+        msgDiv.style.marginRight = "0";
+        msgDiv.style.backgroundColor = "#005c4b"; // WhatsApp Green Bubble
+        msgDiv.style.color = "#ffffff";
+    } else {
+        msgDiv.style.marginLeft = "0";
+        msgDiv.style.marginRight = "auto";
+        msgDiv.style.backgroundColor = "#202c33"; // WhatsApp Dark Grey
+        msgDiv.style.color = "#ffffff";
+    }
 
     let tickHtml = "";
     if (isOutgoing) {
         let isRead = msg.status === "read";
         let color = isRead ? "#53bdeb" : "#8696a0";
         let iconClass = msg.status === "sent" ? "fa-check" : "fa-check-double";
-        tickHtml = `<span id="tick-${msg.id}" class="msg-tick"><i class="fa-solid ${iconClass}" style="color:${color};"></i></span>`;
+        tickHtml = `<span id="tick-${msg.id || ''}" class="msg-tick" style="margin-left:5px;"><i class="fa-solid ${iconClass}" style="color:${color};"></i></span>`;
     }
 
     let bodyContent = `<div class="msg-text">${msg.content || ''}</div>`;
     if (msg.msg_type === "image") {
-        bodyContent = `<img src="${msg.file_url}" class="chat-img" /><div class="msg-text">${msg.content || ''}</div>`;
+        bodyContent = `<img src="${msg.file_url}" class="chat-img" style="max-width:200px; border-radius:8px;" /><div class="msg-text">${msg.content || ''}</div>`;
     } else if (msg.msg_type === "voice") {
         bodyContent = `<audio controls src="${msg.file_url}"></audio>`;
     } else if (msg.msg_type === "document") {
-        bodyContent = `<a href="${msg.file_url}" target="_blank" class="doc-link">📄 Download Document</a>`;
+        bodyContent = `<a href="${msg.file_url}" target="_blank" style="color:#53bdeb;">📄 Download Document</a>`;
     }
 
     msgDiv.innerHTML = `
-        ${msg.reply_to_id ? `<div class="quoted-reply">Replying to #${msg.reply_to_id}</div>` : ''}
+        ${msg.reply_to_id ? `<div class="quoted-reply" style="font-size:0.8em; opacity:0.7;">Replying to #${msg.reply_to_id}</div>` : ''}
         ${bodyContent}
-        <div class="msg-meta">
+        <div class="msg-meta" style="font-size:0.7em; text-align:right; opacity:0.7; margin-top:2px;">
             <span class="msg-time">${msg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             ${tickHtml}
         </div>
-        <button onclick="reactToMessage(${msg.id}, '❤️')" class="react-btn">❤️</button>
-        <button onclick="reactToMessage(${msg.id}, '👍')" class="react-btn">👍</button>
     `;
 
     chatBox.appendChild(msgDiv);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 🟢 8. Voice Recording Features
+// 🟢 8. Load Old Chat History when Contact Clicked
+async function loadChatHistory(contactPhone) {
+    const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
+    chatBox.innerHTML = "";
+
+    try {
+        const res = await fetch(`/messages/${currentUserPhone}/${contactPhone}`);
+        const messages = await res.json();
+        
+        if (Array.isArray(messages)) {
+            for (let msg of messages) {
+                if (msg.content) {
+                    msg.content = await decryptMessage(msg.content, sharedCryptoKey);
+                }
+                appendMessageToUI(msg);
+            }
+        }
+    } catch (err) {
+        console.error("Error loading chat history:", err);
+    }
+}
+
+// 🟢 9. Select Contact
+function selectContact(phone, name) {
+    selectedUser = phone;
+    selectedGroupId = null;
+
+    const emptyState = document.getElementById("emptyState");
+    const activeChatWrapper = document.getElementById("activeChatWrapper");
+
+    if (emptyState) emptyState.style.display = "none";
+    if (activeChatWrapper) activeChatWrapper.style.display = "flex";
+
+    document.getElementById("chatWithTitle").innerText = name;
+    document.getElementById("chatStatusText").innerText = "Online";
+
+    const activeAvatar = document.getElementById("activeAvatar");
+    if (activeAvatar) {
+        activeAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff`;
+    }
+
+    // Load Chat History
+    loadChatHistory(phone);
+}
+
+// 🟢 10. Voice Recording Features
 async function startVoiceRecording() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -295,7 +354,7 @@ function stopVoiceRecording() {
     if (mediaRecorder) mediaRecorder.stop();
 }
 
-// 🟢 9. React to Message
+// 🟢 11. React to Message
 function reactToMessage(msgId, emoji) {
     socket.send(JSON.stringify({
         type: "reaction",
@@ -305,7 +364,7 @@ function reactToMessage(msgId, emoji) {
     }));
 }
 
-// 🟢 10. Load Contacts & Display
+// 🟢 12. Load Contacts & Display
 async function loadContactsAndGroups() {
     try {
         const res = await fetch(`/contacts/${currentUserPhone}`);
@@ -338,30 +397,7 @@ async function loadContactsAndGroups() {
     }
 }
 
-// 🟢 11. Select Contact
-function selectContact(phone, name) {
-    selectedUser = phone;
-    selectedGroupId = null;
-
-    const emptyState = document.getElementById("emptyState");
-    const activeChatWrapper = document.getElementById("activeChatWrapper");
-
-    if (emptyState) emptyState.style.display = "none";
-    if (activeChatWrapper) activeChatWrapper.style.display = "flex";
-
-    document.getElementById("chatWithTitle").innerText = name;
-    document.getElementById("chatStatusText").innerText = "Online";
-
-    const activeAvatar = document.getElementById("activeAvatar");
-    if (activeAvatar) {
-        activeAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff`;
-    }
-
-    const chatBox = document.getElementById("chatBox");
-    if (chatBox) chatBox.innerHTML = "";
-}
-
-// 🟢 12. Add New Contact Function (+ Icon)
+// 🟢 13. Add New Contact Function (+ Icon)
 async function promptAddContact() {
     const phone = prompt("Enter the Phone Number to add:");
     if (!phone) return;
@@ -389,7 +425,7 @@ async function promptAddContact() {
     }
 }
 
-// 🟢 13. Mobile View Back Button
+// 🟢 14. Mobile View Back Button
 function closeChatMobile() {
     const activeChatWrapper = document.getElementById("activeChatWrapper");
     const emptyState = document.getElementById("emptyState");
@@ -398,7 +434,7 @@ function closeChatMobile() {
     if (emptyState) emptyState.style.display = "flex";
 }
 
-// 🟢 14. Contact Search Bar Filter
+// 🟢 15. Contact Search Bar Filter
 function setupSearchFilter() {
     const searchInput = document.getElementById("contactSearch");
     if (!searchInput) return;
@@ -418,7 +454,6 @@ function setupSearchFilter() {
     });
 }
 
-// 🟢 Profile Drawer Fallback
 function openProfileDrawer() {
     alert(`Logged in User: ${currentUserPhone}`);
 }
