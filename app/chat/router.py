@@ -59,7 +59,7 @@ class Reaction(Base):
 
 class DeleteForMe(Base):
     __tablename__ = "deleted_for_me"
-    id = Column(Integer, primary_primary=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)  # 👈 primary_key=True என மாற்றவும்
     message_id = Column(Integer)
     user_phone = Column(String)
 
