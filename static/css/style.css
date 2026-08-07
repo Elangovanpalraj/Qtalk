@@ -1,4 +1,6 @@
-/* 🟢 1. Global Reset & Base Styles */
+/* ==========================================================================
+   🟢 1. Global Reset & Base Layout
+   ========================================================================== */
 * {
     box-sizing: border-box;
     margin: 0;
@@ -10,6 +12,7 @@ body {
     background-color: #111b21;
     color: #e9edef;
     height: 100vh;
+    width: 100vw;
     overflow: hidden;
     display: flex;
     justify-content: center;
@@ -25,13 +28,16 @@ body {
     position: relative;
 }
 
-/* 🟢 2. Mobile Top Header & Navigation Elements */
+/* ==========================================================================
+   🟢 2. Left Nav (Desktop) & Top Header (Mobile)
+   ========================================================================== */
 .mobile-header {
     display: none;
     background: #0b141a;
     padding: 12px 16px;
     justify-content: space-between;
     align-items: center;
+    border-bottom: 1px solid #222d34;
 }
 
 .brand-title {
@@ -53,12 +59,12 @@ body {
 
 .header-actions {
     display: flex;
-    gap: 20px;
+    gap: 16px;
     color: #aebac1;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
+    align-items: center;
 }
 
-/* 🟢 3. Left Vertical Navigation Bar (Desktop) */
 .left-nav {
     width: 60px;
     background: #202c33;
@@ -99,9 +105,12 @@ body {
     height: 34px;
     border-radius: 50%;
     cursor: pointer;
+    object-fit: cover;
 }
 
-/* 🟢 4. Sidebar Contacts List & Profile Drawer */
+/* ==========================================================================
+   🟢 3. Sidebar (Contacts & Drawer)
+   ========================================================================== */
 .sidebar {
     width: 380px;
     background: #111b21;
@@ -112,6 +121,39 @@ body {
     overflow: hidden;
 }
 
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: #111b21;
+}
+
+.sidebar-header h2 {
+    font-size: 1.3rem;
+    color: #e9edef;
+    font-weight: 700;
+}
+
+.icon-btn-ghost {
+    background: none;
+    border: none;
+    color: #aebac1;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.icon-btn-ghost:hover {
+    background: #2a3942;
+    color: #e9edef;
+}
+
+/* Slide-In Profile Drawer */
 .profile-drawer {
     position: absolute;
     top: 0;
@@ -188,62 +230,7 @@ body {
     color: #8696a0;
 }
 
-.sidebar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    background: #111b21;
-}
-
-.sidebar-header h2 {
-    font-size: 1.3rem;
-    color: #e9edef;
-    font-weight: 700;
-}
-
-.icon-btn-ghost {
-    background: none;
-    border: none;
-    color: #aebac1;
-    font-size: 1.1rem;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
-}
-
-.icon-btn-ghost:hover {
-    background: #2a3942;
-    color: #e9edef;
-}
-
-.user-login-bar {
-    display: flex;
-    padding: 8px 16px;
-    gap: 8px;
-    background: #111b21;
-}
-
-.user-login-bar input {
-    flex: 1;
-    padding: 8px 12px;
-    background: #202c33;
-    border: 1px solid #2a3942;
-    border-radius: 8px;
-    color: #fff;
-    outline: none;
-}
-
-.user-login-bar button {
-    padding: 8px 14px;
-    background: #00a884;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
+/* Search Bar & Filter Pills */
 .search-container {
     padding: 10px 16px;
     display: flex;
@@ -255,8 +242,8 @@ body {
     display: flex;
     align-items: center;
     background: #202c33;
-    border-radius: 20px;
-    padding: 6px 12px;
+    border-radius: 8px;
+    padding: 8px 12px;
     gap: 10px;
 }
 
@@ -295,6 +282,7 @@ body {
     color: #00a884;
 }
 
+/* Contact List */
 .contact-list {
     list-style: none;
     overflow-y: auto;
@@ -335,13 +323,8 @@ body {
     border: 2px solid #111b21;
 }
 
-.badge.online {
-    background: #00a884;
-}
-
-.badge.offline {
-    background: #8696a0;
-}
+.badge.online { background: #00a884; }
+.badge.offline { background: #8696a0; }
 
 .contact-info {
     flex: 1;
@@ -371,7 +354,7 @@ body {
     max-width: 200px;
 }
 
-/* 🟢 5. Mobile Bottom Navigation */
+/* Mobile Bottom Navigation */
 .mobile-bottom-nav {
     display: none;
     background: #172128;
@@ -387,17 +370,15 @@ body {
     color: #8696a0;
     font-size: 0.75rem;
     gap: 4px;
+    cursor: pointer;
 }
 
-.nav-item.active {
-    color: #25d366;
-}
+.nav-item.active { color: #25d366; }
+.nav-item i { font-size: 1.2rem; }
 
-.nav-item i {
-    font-size: 1.2rem;
-}
-
-/* 🟢 6. Main Chat Area */
+/* ==========================================================================
+   🟢 4. Main Chat Area
+   ========================================================================== */
 .main-chat {
     flex: 1;
     background: #0b141a;
@@ -438,6 +419,7 @@ body {
     align-items: center;
     padding: 0 16px;
     position: relative;
+    z-index: 5;
 }
 
 .chat-header-info {
@@ -450,6 +432,7 @@ body {
     width: 40px;
     height: 40px;
     border-radius: 50%;
+    object-fit: cover;
 }
 
 .chat-header-info h3 {
@@ -505,8 +488,12 @@ body {
     gap: 10px;
 }
 
-/* 🟢 7. Message Bubbles & Chat Box Logic */
-.chat-box, #chatBox {
+.chat-dropdown li:hover {
+    background: #182229;
+}
+
+/* Messages & Bubbles */
+.chat-box {
     flex: 1;
     padding: 20px 5%;
     overflow-y: auto;
@@ -518,7 +505,7 @@ body {
     background-size: 16px 16px;
 }
 
-.msg, .message-bubble {
+.msg {
     max-width: 65%;
     padding: 8px 12px;
     border-radius: 8px;
@@ -528,18 +515,18 @@ body {
     word-break: break-word;
 }
 
-.msg.sent, .message-bubble.outgoing {
+.msg.sent {
     align-self: flex-end;
-    background-color: #005c4b !important;
+    background-color: #005c4b;
     color: #e9edef;
-    border-bottom-right-radius: 2px;
+    border-top-right-radius: 0;
 }
 
-.msg.received, .message-bubble.incoming {
+.msg.received {
     align-self: flex-start;
-    background-color: #202c33 !important;
+    background-color: #202c33;
     color: #e9edef;
-    border-bottom-left-radius: 2px;
+    border-top-left-radius: 0;
 }
 
 .msg-meta {
@@ -557,14 +544,7 @@ body {
     font-size: 0.8rem;
 }
 
-.msg img, .chat-img {
-    max-width: 250px;
-    border-radius: 6px;
-    margin-top: 4px;
-    cursor: pointer;
-}
-
-/* 🟢 8. Inputs, Popups & Attachment Drawers */
+/* Drawers & Popups */
 .attachment-menu {
     display: none;
     position: absolute;
@@ -590,11 +570,15 @@ body {
     border-radius: 8px;
 }
 
+.attach-item:hover {
+    background: #182229;
+}
+
 .emoji-picker-box {
     display: none;
     position: absolute;
     bottom: 70px;
-    left: 60px;
+    left: 10px;
     background: #233138;
     padding: 10px;
     border-radius: 12px;
@@ -611,6 +595,7 @@ body {
     padding: 4px;
 }
 
+/* Chat Input Bar */
 .chat-input-bar {
     height: 62px;
     background: #202c33;
@@ -645,52 +630,9 @@ body {
     font-size: 1rem;
 }
 
-/* 🟢 9. Media Lightbox Modal */
-.media-modal {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0,0,0,0.9);
-    z-index: 999;
-    justify-content: center;
-    align-items: center;
-}
-
-.modal-content {
-    position: relative;
-    max-width: 90%;
-    max-height: 90%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.modal-header {
-    position: absolute;
-    top: -40px;
-    right: 0;
-    display: flex;
-    gap: 15px;
-}
-
-.modal-btn {
-    color: white;
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    cursor: pointer;
-}
-
-.modal-content img {
-    max-width: 100%;
-    max-height: 80vh;
-    border-radius: 8px;
-}
-
-/* 🟢 10. Authentication & Login Screen */
+/* ==========================================================================
+   🟢 5. Auth / Login Card
+   ========================================================================== */
 .auth-container {
     width: 100vw;
     height: 100vh;
@@ -736,7 +678,9 @@ body {
     cursor: pointer;
 }
 
-/* 🟢 11. Responsive Media Queries (Mobile Specific Rules) */
+/* ==========================================================================
+   🟢 6. Mobile Responsiveness Rules
+   ========================================================================== */
 @media (max-width: 768px) {
     .desktop-only { 
         display: none !important; 
@@ -774,7 +718,7 @@ body {
         display: flex !important; 
     }
 
-    .msg, .message-bubble { 
+    .msg { 
         max-width: 80%; 
     }
 }
