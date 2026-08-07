@@ -6,45 +6,63 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-# Database Imports
+# Database Base & Session Setup
 from app.database import Base, engine, get_db
-from app.chat.models import Message
 
-# Import All Routers (Chat, Contacts, Status)
+# Import Models (SQLAlchemy Tables உருவாக்க அனைத்து மாடல்களும் தேவை)
+from app.chat.models import Message, Group, GroupMember, MessageReaction
+from app.status.models import Status, StatusView
+
+# Import App Routers
 from app.chat.router import router as chat_router
 from app.contacts.router import router as contacts_router
 from app.status.router import router as status_router
 
-# 1. Database Tables Creation
+
+# 🟢 1. DATABASE TABLES CREATION
+# அனைத்து மாடல்களுக்கான அட்டவணைகளையும் தானாக உருவாக்கும்
 Base.metadata.create_all(bind=engine)
 
-# 2. FastAPI Initialization
-app = FastAPI(title="Qtalk - Web Application Engine")
 
-# 3. Ensure Required Directories Exist
+# 🟢 2. FASTAPI APP INITIALIZATION
+app = FastAPI(
+    title="Qtalk - Web Application Engine",
+    description="Real-time Chat, Group Messaging, Status Stories, and Media Engine",
+    version="1.0.0"
+)
+
+
+# 🟢 3. ENSURE REQUIRED DIRECTORIES EXIST
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("static", exist_ok=True)
 os.makedirs("templates", exist_ok=True)
 
-# 4. Mount Static & Upload Files
+
+# 🟢 4. MOUNT STATIC & UPLOAD FILES
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# 5. Include All App Routers
-app.include_router(chat_router, prefix="/chat", tags=["Chat"])
-app.include_router(contacts_router, prefix="/contacts", tags=["Contacts"])
-app.include_router(status_router, prefix="/status", tags=["Status"])
+
+# 🟢 5. INCLUDE ALL APP ROUTERS
+# (குறிப்பு: Routers-க்குள் ஏற்கனவே Prefixes வரையறுக்கப்பட்டுள்ளதால் இங்கு கூடுதல் prefix தவிர்க்கப்பட்டுள்ளது)
+app.include_router(chat_router)
+app.include_router(contacts_router)
+app.include_router(status_router)
 
 
-# --- Pydantic Request Schemas ---
+# ------------------------------------------------------------------
+# 🟢 6. PYDANTIC SCHEMAS (Request Validation)
+# ------------------------------------------------------------------
 class RegisterRequest(BaseModel):
     phone: str
     name: str = "Qtalk User"
 
 
-# --- API Endpoints ---
+# ------------------------------------------------------------------
+# 🟢 7. SYSTEM & MEDIA ENDPOINTS
+# ------------------------------------------------------------------
 
-# 🟢 1. User Registration API
+# A. User Registration / Auth Mock Endpoint
 @app.post("/register", tags=["Auth"])
 def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     """
@@ -57,50 +75,40 @@ def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     }
 
 
-# 🟢 2. File & Image Upload API
+# B. File & Media Upload API
 @app.post("/upload", tags=["Media"])
 async def upload_file(file: UploadFile = File(...)):
     """
-    படங்கள், வீடியோக்கள் மற்றும் ஃபோல்டர்களை Upload செய்யும் API.
+    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் API.
     """
     ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join("uploads", filename)
-    
+
     with open(filepath, "wb") as buffer:
         buffer.write(await file.read())
-        
-    return {"file_url": f"/uploads/{filename}"}
+
+    return {
+        "success": True,
+        "filename": file.filename,
+        "file_url": f"/uploads/{filename}"
+    }
 
 
-# 🟢 3. Delete Message API
-@app.delete("/message/{msg_id}", tags=["Chat"])
-def delete_message(msg_id: int, db: Session = Depends(get_db)):
-    """
-    குறிப்பிட்ட மெசேஜை அழிப்பதற்கான (Delete) API.
-    """
-    msg = db.query(Message).filter(Message.id == msg_id).first()
-    if not msg:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Message with ID {msg_id} not found"
-        )
-    
-    db.delete(msg)
-    db.commit()
-    return {"status": "success", "id": msg_id}
-
-
-# 🟢 4. Health Check API
+# C. System Health Check API
 @app.get("/health", tags=["System"])
 def health_check():
     """
     சர்வர் சரியாக இயங்குகிறதா என்பதைச் சரிபார்க்கும் API.
     """
-    return {"status": "ok", "message": "Qtalk Engine is Running Perfectly!"}
+    return {
+        "status": "ok",
+        "app_name": "Qtalk Engine",
+        "message": "Qtalk Backend Engine is Running Perfectly!"
+    }
 
 
-# 🟢 5. Home Page Route (Frontend UI)
+# D. Home Page Route (Frontend UI)
 @app.get("/", response_class=HTMLResponse, tags=["Frontend"])
 async def get_app():
     """
@@ -112,6 +120,6 @@ async def get_app():
             content="<h2>Qtalk Server is Running! (templates/index.html file not found)</h2>",
             status_code=200
         )
-        
+
     with open(template_path, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
