@@ -9,49 +9,71 @@ from pydantic import BaseModel
 # Database Base & Session Setup
 from app.database import Base, engine, get_db
 
-# Import Models (SQLAlchemy Tables உருவாக்க அனைத்து மாடல்களும் தேவை)
+# ------------------------------------------------------------------
+# 🟢 1. IMPORT ALL DATABASE MODELS (For Automatic Table Creation)
+# ------------------------------------------------------------------
+from app.auth.models import User, OTPStore
 from app.chat.models import Message, Group, GroupMember, MessageReaction
 from app.status.models import Status, StatusView
+from app.calls.models import CallLog
 
-# Import App Routers
+
+# ------------------------------------------------------------------
+# 🟢 2. IMPORT ALL APP ROUTERS
+# ------------------------------------------------------------------
+from app.auth.router import router as auth_router
 from app.chat.router import router as chat_router
 from app.contacts.router import router as contacts_router
 from app.status.router import router as status_router
+from app.media.router import router as media_router
+from app.calls.router import router as calls_router
 
 
-# 🟢 1. DATABASE TABLES CREATION
+# ------------------------------------------------------------------
+# 🟢 3. DATABASE TABLES CREATION
+# ------------------------------------------------------------------
 # அனைத்து மாடல்களுக்கான அட்டவணைகளையும் தானாக உருவாக்கும்
 Base.metadata.create_all(bind=engine)
 
 
-# 🟢 2. FASTAPI APP INITIALIZATION
+# ------------------------------------------------------------------
+# 🟢 4. FASTAPI APP INITIALIZATION
+# ------------------------------------------------------------------
 app = FastAPI(
     title="Qtalk - Web Application Engine",
-    description="Real-time Chat, Group Messaging, Status Stories, and Media Engine",
+    description="Real-time Chat, Group Messaging, Audio/Video Calls, Status Stories, and Media Engine",
     version="1.0.0"
 )
 
 
-# 🟢 3. ENSURE REQUIRED DIRECTORIES EXIST
+# ------------------------------------------------------------------
+# 🟢 5. ENSURE REQUIRED DIRECTORIES EXIST
+# ------------------------------------------------------------------
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("static", exist_ok=True)
 os.makedirs("templates", exist_ok=True)
 
 
-# 🟢 4. MOUNT STATIC & UPLOAD FILES
+# ------------------------------------------------------------------
+# 🟢 6. MOUNT STATIC & UPLOAD FILES
+# ------------------------------------------------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
-# 🟢 5. INCLUDE ALL APP ROUTERS
-# (குறிப்பு: Routers-க்குள் ஏற்கனவே Prefixes வரையறுக்கப்பட்டுள்ளதால் இங்கு கூடுதல் prefix தவிர்க்கப்பட்டுள்ளது)
+# ------------------------------------------------------------------
+# 🟢 7. INCLUDE ALL MODULE ROUTERS
+# ------------------------------------------------------------------
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(contacts_router)
 app.include_router(status_router)
+app.include_router(media_router)
+app.include_router(calls_router)
 
 
 # ------------------------------------------------------------------
-# 🟢 6. PYDANTIC SCHEMAS (Request Validation)
+# 🟢 8. PYDANTIC SCHEMAS (Request Validation)
 # ------------------------------------------------------------------
 class RegisterRequest(BaseModel):
     phone: str
@@ -59,10 +81,10 @@ class RegisterRequest(BaseModel):
 
 
 # ------------------------------------------------------------------
-# 🟢 7. SYSTEM & MEDIA ENDPOINTS
+# 🟢 9. SYSTEM & GLOBAL ENDPOINTS
 # ------------------------------------------------------------------
 
-# A. User Registration / Auth Mock Endpoint
+# A. User Registration / Auth Direct Route
 @app.post("/register", tags=["Auth"])
 def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     """
@@ -75,11 +97,11 @@ def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     }
 
 
-# B. File & Media Upload API
+# B. Direct File & Media Upload API
 @app.post("/upload", tags=["Media"])
 async def upload_file(file: UploadFile = File(...)):
     """
-    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் API.
+    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
     """
     ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
     filename = f"{uuid.uuid4().hex}.{ext}"
