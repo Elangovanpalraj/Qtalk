@@ -1,77 +1,122 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import Column, String, Integer
 from pydantic import BaseModel
-from app.database import get_db, Base, engine
+from typing import Optional
 
-# 🟢 1. Database Tables for Users and Contacts
-class UserDB(Base):
-    __tablename__ = "qtalk_users"
-    phone = Column(String, primary_primary=True if False else False, primary_key=True, index=True)
-    name = Column(String, default="Qtalk User")
+from app.database import get_db
+from app.contacts.models import User, Contact
 
-class ContactDB(Base):
-    __tablename__ = "qtalk_contacts"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_phone = Column(String, index=True)
-    contact_phone = Column(String, index=True)
+router = APIRouter(prefix="/contacts", tags=["Contacts & Users"])
 
-# Create Tables automatically
-Base.metadata.create_all(bind=engine)
 
-router = APIRouter(prefix="", tags=["Contacts"])
-
-# Request Body Models
+# ------------------------------------------------------------------
+# 🟢 Pydantic Request Models
+# ------------------------------------------------------------------
 class RegisterRequest(BaseModel):
-    phone: str
-    name: str = "Qtalk User"
+    phone_number: str
+    username: Optional[str] = "Qtalk User"
+    bio: Optional[str] = "Hey there! I am using Qtalk."
+
 
 class AddContactRequest(BaseModel):
     user_phone: str
     contact_phone: str
 
 
-# 🟢 2. Register API (பயனர் லாகின் பண்ணும்போது DB-ல் சேமிக்கும்)
+# ------------------------------------------------------------------
+# 🟢 1. Register / Sync User API
+# ------------------------------------------------------------------
 @router.post("/register")
 def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
-    user = db.query(UserDB).filter(UserDB.phone == data.phone).first()
+    """
+    பயனர் லாகின் செய்யும்போது அல்லது ஆப் ஓபன் பண்ணும்போது User-ஐ DB-ல் பதிவு செய்யும்.
+    """
+    user = db.query(User).filter(User.phone_number == data.phone_number).first()
     if not user:
-        new_user = UserDB(phone=data.phone, name=data.name or f"User {data.phone[-4:]}")
-        db.add(new_user)
+        username = data.username if data.username else f"User {data.phone_number[-4:]}"
+        user = User(
+            phone_number=data.phone_number,
+            username=username,
+            bio=data.bio
+        )
+        db.add(user)
         db.commit()
-        db.refresh(new_user)
-    return {"success": True, "message": "User registered successfully"}
+        db.refresh(user)
+    
+    return {
+        "success": True, 
+        "message": "User registered successfully", 
+        "user_id": user.id,
+        "phone_number": user.phone_number,
+        "username": user.username
+    }
 
 
-# 🟢 3. Add Contact API (புது Contact ஆட் செய்யும்போது DB-ல் செக் பண்ணும்)
-@router.post("/contacts/add")
+# ------------------------------------------------------------------
+# 🟢 2. Add Contact API
+# ------------------------------------------------------------------
+@router.post("/add")
 def add_contact(data: AddContactRequest, db: Session = Depends(get_db)):
-    # 1. Target User Qtalk-ல் இருக்கிறாரா என பார்ப்பது
-    target = db.query(UserDB).filter(UserDB.phone == data.contact_phone).first()
-    if not target:
+    """
+    புதிய Contact-ஐ போன் நம்பர் மூலம் ஆட் செய்யும். Target user Qtalk-ல் இருக்கிறாரா என செக் செய்யும்.
+    """
+    # 1. Find Current User
+    current_user = db.query(User).filter(User.phone_number == data.user_phone).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="Current user not found in Qtalk!")
+
+    # 2. Check if Target User is registered on Qtalk
+    target_user = db.query(User).filter(User.phone_number == data.contact_phone).first()
+    if not target_user:
         return {"success": False, "message": "User not registered on Qtalk!"}
 
-    # 2. ஏற்கனவே Add பண்ணியிருக்கிறாரா என பார்ப்பது
-    existing = db.query(ContactDB).filter(
-        ContactDB.user_phone == data.user_phone,
-        ContactDB.contact_phone == data.contact_phone
+    # Don't let user add themselves
+    if current_user.id == target_user.id:
+        return {"success": False, "message": "You cannot add yourself as a contact!"}
+
+    # 3. Check if contact already exists
+    existing_contact = db.query(Contact).filter(
+        Contact.user_id == current_user.id,
+        Contact.contact_user_id == target_user.id
     ).first()
 
-    if not existing:
-        new_contact = ContactDB(user_phone=data.user_phone, contact_phone=data.contact_phone)
+    if not existing_contact:
+        new_contact = Contact(
+            user_id=current_user.id,
+            contact_user_id=target_user.id
+        )
         db.add(new_contact)
         db.commit()
 
     return {"success": True, "message": "Contact added successfully!"}
 
 
-# 🟢 4. Get Contacts API (பயனரின் Contact List-ஐ எடுப்பது)
-@router.get("/contacts/{user_phone}")
+# ------------------------------------------------------------------
+# 🟢 3. Get Contacts List API
+# ------------------------------------------------------------------
+@router.get("/{user_phone}")
 def get_contacts(user_phone: str, db: Session = Depends(get_db)):
-    contacts = db.query(ContactDB).filter(ContactDB.user_phone == user_phone).all()
+    """
+    கொடுக்கப்பட்ட பயனரின் போன் நம்பரை வைத்து அவரின் முழுமையான Contact List-ஐ எடுக்கும்.
+    """
+    current_user = db.query(User).filter(User.phone_number == user_phone).first()
+    if not current_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    contacts = db.query(Contact).filter(Contact.user_id == current_user.id).all()
+    
     result = []
     for c in contacts:
-        u = db.query(UserDB).filter(UserDB.phone == c.contact_phone).first()
-        if u:
-            result.append({"phone": u.phone, "name": u.name})
-    return result
+        contact_user = db.query(User).filter(User.id == c.contact_user_id).first()
+        if contact_user:
+            result.append({
+                "id": contact_user.id,
+                "phone_number": contact_user.phone_number,
+                "username": contact_user.username,
+                "profile_pic": contact_user.profile_pic,
+                "bio": contact_user.bio,
+                "is_online": contact_user.is_online,
+                "is_blocked": c.is_blocked
+            })
+            
+    return {"success": True, "contacts": result}
