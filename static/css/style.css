@@ -1,130 +1,56 @@
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-body { background-color: #111b21; color: #e9edef; height: 100vh; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+/* Qtalk Login Screen */
+.auth-container {
+    width: 100vw;
+    height: 100vh;
+    background: #0b141a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
 
-.app-container { display: flex; width: 100vw; height: 100vh; background: #111b21; overflow: hidden; position: relative; }
+.auth-card {
+    background: #202c33;
+    padding: 30px;
+    border-radius: 12px;
+    text-align: center;
+    width: 90%;
+    max-width: 380px;
+}
 
-/* Mobile Top Header */
-.mobile-header { display: none; background: #0b141a; padding: 12px 16px; justify-content: space-between; align-items: center; }
-.brand-title { color: #25d366; font-size: 1.4rem; font-weight: 600; }
-.header-actions { display: flex; gap: 20px; color: #aebac1; font-size: 1.2rem; }
+.qtalk-logo {
+    width: 70px;
+    margin-bottom: 15px;
+}
 
-/* 1. Left Vertical Icon Bar (Desktop Only) */
-.left-nav { width: 60px; background: #202c33; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 12px 0; border-right: 1px solid #2a3942; z-index: 10; }
-.top-icons, .bottom-icons { display: flex; flex-direction: column; gap: 18px; align-items: center; }
-.nav-btn { background: none; border: none; color: #aebac1; font-size: 1.2rem; cursor: pointer; padding: 10px; border-radius: 50%; transition: 0.2s; }
-.nav-btn:hover, .nav-btn.active { color: #00a884; background: #2a3942; }
-.profile-avatar-small img { width: 34px; height: 34px; border-radius: 50%; cursor: pointer; }
+.auth-card input {
+    width: 100%;
+    padding: 12px;
+    margin: 15px 0;
+    border-radius: 8px;
+    border: 1px solid #2a3942;
+    background: #111b21;
+    color: #fff;
+    outline: none;
+}
 
-/* 2. Sidebar Contacts List & Drawer */
-.sidebar { width: 380px; background: #111b21; border-right: 1px solid #2a3942; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-.profile-drawer { position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: #111b21; z-index: 200; transition: 0.3s ease-in-out; display: flex; flex-direction: column; }
-.profile-drawer.open { left: 0; }
-.drawer-header { height: 60px; background: #202c33; display: flex; align-items: center; gap: 15px; padding: 0 16px; color: #e9edef; }
-.drawer-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; align-items: center; }
-.profile-pic-container img { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; }
-.profile-field { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-.profile-field label { font-size: 0.8rem; color: #00a884; }
-.field-input { display: flex; align-items: center; background: #202c33; padding: 10px; border-radius: 8px; justify-content: space-between; }
-.field-input input { background: transparent; border: none; outline: none; color: #fff; width: 90%; font-size: 0.95rem; }
-.field-input i { color: #8696a0; }
+.auth-card button {
+    width: 100%;
+    padding: 12px;
+    background: #00a884;
+    border: none;
+    color: #fff;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+}
 
-.sidebar-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #111b21; }
-.sidebar-header h2 { font-size: 1.3rem; color: #e9edef; font-weight: 700; }
-.icon-btn-ghost { background: none; border: none; color: #aebac1; font-size: 1.1rem; cursor: pointer; padding: 8px; border-radius: 50%; }
-.icon-btn-ghost:hover { background: #2a3942; color: #e9edef; }
+.brand-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 
-.user-login-bar { display: flex; padding: 8px 16px; gap: 8px; background: #111b21; }
-.user-login-bar input { flex: 1; padding: 8px 12px; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; color: #fff; outline: none; }
-.user-login-bar button { padding: 8px 14px; background: #00a884; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
-
-.search-container { padding: 10px 16px; display: flex; flex-direction: column; gap: 10px; }
-.search-box { display: flex; align-items: center; background: #202c33; border-radius: 20px; padding: 6px 12px; gap: 10px; }
-.search-icon { color: #8696a0; font-size: 0.9rem; }
-.search-box input { background: transparent; border: none; outline: none; color: #fff; width: 100%; font-size: 0.9rem; }
-.filter-pills { display: flex; gap: 8px; }
-.pill { background: #202c33; border: none; color: #8696a0; padding: 6px 14px; border-radius: 16px; font-size: 0.85rem; cursor: pointer; font-weight: 500; }
-.pill.active { background: #0a332c; color: #00a884; }
-
-.contact-list { list-style: none; overflow-y: auto; flex: 1; }
-.contact-item { display: flex; align-items: center; padding: 12px 16px; gap: 12px; cursor: pointer; border-bottom: 1px solid #1f2c34; }
-.contact-item:hover, .contact-item.active { background: #2a3942; }
-.contact-avatar { position: relative; }
-.contact-avatar img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
-.contact-avatar .badge { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #111b21; }
-.badge.online { background: #00a884; } .badge.offline { background: #8696a0; }
-.contact-info { flex: 1; overflow: hidden; }
-.contact-top { display: flex; justify-content: space-between; font-weight: 600; color: #e9edef; margin-bottom: 4px; font-size: 0.95rem; }
-.contact-bottom { display: flex; justify-content: space-between; color: #8696a0; font-size: 0.85rem; }
-.last-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-
-/* Mobile Bottom Navigation */
-.mobile-bottom-nav { display: none; background: #172128; padding: 8px 0; justify-content: space-around; border-top: 1px solid #222d34; }
-.nav-item { display: flex; flex-direction: column; align-items: center; color: #8696a0; font-size: 0.75rem; gap: 4px; }
-.nav-item.active { color: #25d366; } .nav-item i { font-size: 1.2rem; }
-
-/* 3. Main Chat Panel */
-.main-chat { flex: 1; background: #0b141a; display: flex; flex-direction: column; position: relative; }
-.empty-state { flex: 1; display: flex; justify-content: center; align-items: center; text-align: center; background: #222e35; color: #8696a0; }
-.whatsapp-big-icon { font-size: 4rem; color: #00a884; margin-bottom: 16px; }
-
-.active-chat-wrapper { flex: 1; display: flex; flex-direction: column; height: 100%; }
-.chat-header { height: 60px; background: #202c33; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; position: relative; }
-.chat-header-info { display: flex; align-items: center; gap: 12px; }
-.chat-header-info img { width: 40px; height: 40px; border-radius: 50%; }
-.chat-header-info h3 { font-size: 1rem; color: #e9edef; font-weight: 600; }
-.status-subtitle { font-size: 0.75rem; color: #8696a0; }
-.chat-header-actions { display: flex; gap: 6px; position: relative; }
-.back-btn { background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer; padding-right: 10px; }
-
-.chat-dropdown { display: none; position: absolute; top: 45px; right: 10px; background: #233138; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; width: 180px; }
-.chat-dropdown ul { list-style: none; padding: 8px 0; }
-.chat-dropdown li { padding: 10px 16px; color: #aebac1; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 10px; }
-
-.chat-box { flex: 1; padding: 20px 5%; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; background-color: #0b141a; background-image: radial-gradient(#1f2c34 1px, transparent 0); background-size: 16px 16px; }
-.msg { max-width: 60%; padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; position: relative; word-break: break-word; }
-.msg.sent { align-self: flex-end; background: #005c4b; color: #e9edef; }
-.msg.received { align-self: flex-start; background: #202c33; color: #e9edef; }
-.msg-meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 2px; font-size: 0.68rem; color: rgba(241,241,241,0.6); }
-.blue-tick { color: #53bdeb; font-size: 0.8rem; }
-.msg img { max-width: 250px; border-radius: 6px; margin-top: 4px; cursor: pointer; }
-
-/* Popups & Lightbox */
-.attachment-menu { display: none; position: absolute; bottom: 70px; left: 20px; background: #233138; border-radius: 12px; padding: 10px; box-shadow: 0 6px 16px rgba(0,0,0,0.5); z-index: 90; flex-direction: column; gap: 8px; }
-.attach-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; color: #e9edef; font-size: 0.9rem; cursor: pointer; border-radius: 8px; }
-
-.emoji-picker-box { display: none; position: absolute; bottom: 70px; left: 60px; background: #233138; padding: 10px; border-radius: 12px; grid-template-columns: repeat(5, 1fr); gap: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 95; }
-.emoji-picker-box span { font-size: 1.4rem; cursor: pointer; text-align: center; padding: 4px; }
-
-.chat-input-bar { height: 62px; background: #202c33; display: flex; align-items: center; padding: 0 16px; gap: 10px; }
-.chat-input-bar input[type="text"] { flex: 1; background: #2a3942; border: none; outline: none; color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 0.95rem; }
-.send-btn { background: #00a884; border: none; color: #111b21; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; font-size: 1rem; }
-
-/* Lightbox Modal */
-.media-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 999; justify-content: center; align-items: center; }
-.modal-content { position: relative; max-width: 90%; max-height: 90%; display: flex; flex-direction: column; align-items: center; }
-.modal-header { position: absolute; top: -40px; right: 0; display: flex; gap: 15px; }
-.modal-btn { color: white; background: none; border: none; font-size: 1.5rem; cursor: pointer; }
-.modal-content img { max-width: 100%; max-height: 80vh; border-radius: 8px; }
-
-/* 📱 Mobile Specific Styles (FIXED HERE) */
-@media (max-width: 768px) {
-    .desktop-only { display: none !important; }
-    .mobile-header { display: flex; }
-    .mobile-bottom-nav { display: flex; }
-    .app-container { flex-direction: column; }
-    .sidebar { width: 100%; height: 100%; border: none; }
-    
-    .main-chat { 
-        position: fixed; 
-        top: 0; 
-        left: 0; 
-        width: 100vw; 
-        height: 100vh; 
-        z-index: 500; 
-        display: none; 
-    }
-    .main-chat.mobile-active { 
-        display: flex !important; 
-    }
-    .msg { max-width: 80%; }
+.header-logo, .qtalk-nav-logo {
+    width: 30px;
+    height: 30px;
 }
