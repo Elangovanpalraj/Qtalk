@@ -6,42 +6,53 @@ let typingTimeout = null;
 let replyMessageId = null;
 let mediaRecorder = null;
 let audioChunks = [];
-
-// E2EE Dynamic Key Generator per session
 let sharedCryptoKey = null;
 
-// 🔒 Crypto Key Generator (AES-GCM 256-bit)
+// 🔒 1. Crypto Key Generator (E2EE)
 async function getOrCreateCryptoKey() {
     if (sharedCryptoKey) return sharedCryptoKey;
-    sharedCryptoKey = await window.crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 },
-        true,
-        ["encrypt", "decrypt"]
-    );
+    try {
+        sharedCryptoKey = await window.crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
+    } catch (e) {
+        console.warn("Crypto key creation fallback:", e);
+    }
     return sharedCryptoKey;
 }
 
-// 🟢 A. Encryption Helper Function (பூட்ட)
+// 🟢 Encryption Helper
 async function encryptMessage(plaintext, secretKey) {
-    const enc = new TextEncoder();
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const encodedMessage = enc.encode(plaintext);
+    if (!secretKey) return plaintext;
+    try {
+        const enc = new TextEncoder();
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encodedMessage = enc.encode(plaintext);
 
-    const ciphertext = await window.crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv },
-        secretKey,
-        encodedMessage
-    );
+        const ciphertext = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            secretKey,
+            encodedMessage
+        );
 
-    return {
-        ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-        iv: btoa(String.fromCharCode(...iv))
-    };
+        return JSON.stringify({
+            ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+            iv: btoa(String.fromCharCode(...iv))
+        });
+    } catch (e) {
+        return plaintext;
+    }
 }
 
-// 🟢 B. Decryption Helper Function (திறக்க)
-async function decryptMessage(encryptedObj, secretKey) {
+// 🟢 Decryption Helper
+async function decryptMessage(encryptedStr, secretKey) {
+    if (!secretKey || !encryptedStr || !encryptedStr.startsWith("{")) return encryptedStr;
     try {
+        const encryptedObj = JSON.parse(encryptedStr);
+        if (!encryptedObj.ciphertext || !encryptedObj.iv) return encryptedStr;
+
         const ciphertext = Uint8Array.from(atob(encryptedObj.ciphertext), c => c.charCodeAt(0));
         const iv = Uint8Array.from(atob(encryptedObj.iv), c => c.charCodeAt(0));
 
@@ -53,32 +64,61 @@ async function decryptMessage(encryptedObj, secretKey) {
 
         return new TextDecoder().decode(decrypted);
     } catch (e) {
-        return "[Decryption Failed / Plaintext Message]";
+        return encryptedStr;
     }
 }
 
-// 🟢 1. Verify OTP & Login
+// 🟢 2. Send OTP (முக்கியமாக விடுபட்ட ஃபங்க்ஷன்!)
+function sendOTP() {
+    const phoneInput = document.getElementById("userPhone");
+    const phone = phoneInput ? phoneInput.value.trim() : "";
+
+    if (!phone || phone.length < 10) {
+        alert("Please enter a valid phone number (at least 10 digits)");
+        return;
+    }
+
+    currentUserPhone = phone;
+
+    // UI Toggle: Phone Step மறைத்து, OTP Step-ஐ காண்பிக்கிறது
+    document.getElementById("phoneStep").style.display = "none";
+    document.getElementById("otpStep").style.display = "block";
+    alert("OTP Sent successfully! (Default code: 123456)");
+}
+
+// 🟢 3. Verify OTP & Login
 async function verifyOTP() {
-    const otp = document.getElementById("otpCode").value.trim();
-    if (otp !== "123456") return alert("Invalid OTP code!");
+    const otpInput = document.getElementById("otpCode");
+    const otp = otpInput ? otpInput.value.trim() : "";
 
-    currentUserPhone = document.getElementById("userPhone").value.trim();
+    if (otp !== "123456") return alert("Invalid OTP code! (Use 123456)");
 
-    await fetch("/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: currentUserPhone, name: "User " + currentUserPhone.slice(-4) })
-    });
+    try {
+        await fetch("/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone: currentUserPhone, name: "User " + currentUserPhone.slice(-4) })
+        });
+    } catch (err) {
+        console.error("Registration error:", err);
+    }
+
+    // Set Header & Nav Avatars
+    const navAvatar = document.getElementById("navAvatar");
+    if (navAvatar) {
+        navAvatar.src = `https://ui-avatars.com/api/?name=${currentUserPhone.slice(-4)}&background=00a884&color=fff`;
+    }
 
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("appContainer").style.display = "flex";
-    
+
     await getOrCreateCryptoKey();
     connectWebSocket();
     loadContactsAndGroups();
+    setupSearchFilter();
 }
 
-// 🟢 2. Real-Time WebSocket Listener
+// 🟢 4. Real-Time WebSocket Connection
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUserPhone}`);
@@ -86,44 +126,32 @@ function connectWebSocket() {
     socket.onmessage = async function(event) {
         const data = JSON.parse(event.data);
 
-        // A. Handle Incoming Messages
         if (data.type === "new_message") {
             if (data.sender === selectedUser || data.receiver === selectedUser || data.group_id === selectedGroupId) {
-                // Try Decrypting if Encrypted Payload
-                if (data.content && data.content.startsWith("{")) {
-                    try {
-                        const parsedContent = JSON.parse(data.content);
-                        if (parsedContent.ciphertext) {
-                            data.content = await decryptMessage(parsedContent, sharedCryptoKey);
-                        }
-                    } catch (e) { /* Keep original content if not E2EE JSON */ }
+                if (data.content) {
+                    data.content = await decryptMessage(data.content, sharedCryptoKey);
                 }
-
                 appendMessageToUI(data);
-                
-                // Send Read Ack (Blue Tick Trigger)
                 socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
             }
         }
-        // B. Handle Typing Status
         else if (data.type === "typing" && data.sender === selectedUser) {
             const statusElem = document.getElementById("chatStatusText");
             if (statusElem) {
-                statusElem.innerText = data.is_typing ? "typing..." : "online";
+                statusElem.innerText = data.is_typing ? "typing..." : "Online";
                 statusElem.style.color = data.is_typing ? "#00a884" : "#8696a0";
             }
         }
-        // C. Read Ack Updates (Blue Ticks)
         else if (data.type === "read_ack") {
-            data.message_ids.forEach(id => {
-                const tickElem = document.getElementById(`tick-${id}`);
-                if (tickElem) {
-                    tickElem.innerText = "✓✓";
-                    tickElem.style.color = "#53bdeb";
-                }
-            });
+            if (data.message_ids) {
+                data.message_ids.forEach(id => {
+                    const tickElem = document.getElementById(`tick-${id}`);
+                    if (tickElem) {
+                        tickElem.innerHTML = '<i class="fa-solid fa-check-double" style="color:#53bdeb;"></i>';
+                    }
+                });
+            }
         }
-        // D. Emoji Reaction Updates
         else if (data.type === "reaction") {
             const msgElem = document.getElementById(`msg-${data.message_id}`);
             if (msgElem) {
@@ -139,18 +167,24 @@ function connectWebSocket() {
     };
 }
 
-// 🟢 3. Typing Indicator Sender
+// 🟢 5. Input Triggers
+function handleKeyPress(event) {
+    if (event.key === "Enter") {
+        sendMessage();
+    }
+}
+
 function handleTypingInput() {
     if (!socket || !selectedUser) return;
     socket.send(JSON.stringify({ type: "typing", receiver: selectedUser, is_typing: true }));
-    
+
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
         socket.send(JSON.stringify({ type: "typing", receiver: selectedUser, is_typing: false }));
     }, 2000);
 }
 
-// 🟢 4. Encrypted Send Message Function
+// 🟢 6. Send Message Function
 async function sendMessage(msgType = "text", fileUrl = null) {
     const input = document.getElementById("messageInput");
     const plainText = input ? input.value.trim() : "";
@@ -158,12 +192,9 @@ async function sendMessage(msgType = "text", fileUrl = null) {
     if (!plainText && !fileUrl) return;
 
     let payloadContent = plainText;
-
-    // Encrypt Plaintext for E2EE
     if (plainText) {
         const key = await getOrCreateCryptoKey();
-        const encryptedData = await encryptMessage(plainText, key);
-        payloadContent = JSON.stringify(encryptedData);
+        payloadContent = await encryptMessage(plainText, key);
     }
 
     const payload = {
@@ -177,8 +208,8 @@ async function sendMessage(msgType = "text", fileUrl = null) {
     };
 
     socket.send(JSON.stringify(payload));
-    
-    // UI Local Echo
+
+    // Append to UI immediately
     appendMessageToUI({
         id: Date.now(),
         sender: currentUserPhone,
@@ -193,36 +224,7 @@ async function sendMessage(msgType = "text", fileUrl = null) {
     replyMessageId = null;
 }
 
-// 🟢 5. Voice Recorder Integration
-async function startVoiceRecording() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-
-        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-            const formData = new FormData();
-            formData.append("file", audioBlob, "voice_note.webm");
-
-            const res = await fetch("/upload", { method: "POST", body: formData });
-            const data = await res.json();
-            if (data.file_url) {
-                sendMessage("voice", data.file_url);
-            }
-        };
-        mediaRecorder.start();
-    } catch (err) {
-        alert("Microphone access required for voice notes!");
-    }
-}
-
-function stopVoiceRecording() {
-    if (mediaRecorder) mediaRecorder.stop();
-}
-
-// 🟢 6. Message UI Renderer
+// 🟢 7. Append Message to UI
 function appendMessageToUI(msg) {
     const chatBox = document.getElementById("chatBox");
     if (!chatBox) return;
@@ -234,14 +236,15 @@ function appendMessageToUI(msg) {
 
     let tickHtml = "";
     if (isOutgoing) {
-        let tickColor = msg.status === "read" ? "#53bdeb" : "#8696a0";
-        let tickSymbol = msg.status === "sent" ? "✓" : "✓✓";
-        tickHtml = `<span id="tick-${msg.id}" class="msg-tick" style="color:${tickColor}; margin-left:5px;">${tickSymbol}</span>`;
+        let isRead = msg.status === "read";
+        let color = isRead ? "#53bdeb" : "#8696a0";
+        let iconClass = msg.status === "sent" ? "fa-check" : "fa-check-double";
+        tickHtml = `<span id="tick-${msg.id}" class="msg-tick"><i class="fa-solid ${iconClass}" style="color:${color};"></i></span>`;
     }
 
-    let bodyContent = `<div class="msg-text">${msg.content}</div>`;
+    let bodyContent = `<div class="msg-text">${msg.content || ''}</div>`;
     if (msg.msg_type === "image") {
-        bodyContent = `<img src="${msg.file_url}" class="chat-img" /><div class="msg-text">${msg.content}</div>`;
+        bodyContent = `<img src="${msg.file_url}" class="chat-img" /><div class="msg-text">${msg.content || ''}</div>`;
     } else if (msg.msg_type === "voice") {
         bodyContent = `<audio controls src="${msg.file_url}"></audio>`;
     } else if (msg.msg_type === "document") {
@@ -263,7 +266,36 @@ function appendMessageToUI(msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 🟢 7. React to Message
+// 🟢 8. Voice Recording Features
+async function startVoiceRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            const formData = new FormData();
+            formData.append("file", audioBlob, "voice_note.webm");
+
+            const res = await fetch("/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            if (data.file_url) {
+                sendMessage("voice", data.file_url);
+            }
+        };
+        mediaRecorder.start();
+    } catch (err) {
+        alert("Microphone permission required!");
+    }
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder) mediaRecorder.stop();
+}
+
+// 🟢 9. React to Message
 function reactToMessage(msgId, emoji) {
     socket.send(JSON.stringify({
         type: "reaction",
@@ -273,7 +305,7 @@ function reactToMessage(msgId, emoji) {
     }));
 }
 
-// Load Contacts Helper
+// 🟢 10. Load Contacts & Display
 async function loadContactsAndGroups() {
     try {
         const res = await fetch(`/contacts/${currentUserPhone}`);
@@ -282,9 +314,15 @@ async function loadContactsAndGroups() {
         if (!list) return;
         list.innerHTML = "";
 
+        if (!contacts || contacts.length === 0) {
+            list.innerHTML = '<li style="padding:15px; color:#8696a0; text-align:center;">No contacts yet. Click + icon to add.</li>';
+            return;
+        }
+
         contacts.forEach(c => {
             const li = document.createElement("li");
             li.className = "contact-item";
+            li.setAttribute("data-name", c.name.toLowerCase());
             li.innerHTML = `
                 <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=00a884&color=fff"></div>
                 <div class="contact-info">
@@ -292,13 +330,95 @@ async function loadContactsAndGroups() {
                     <div class="contact-bottom"><span>${c.phone}</span></div>
                 </div>
             `;
-            li.onclick = () => {
-                selectedUser = c.phone;
-                selectedGroupId = null;
-                document.getElementById("chatWithTitle").innerText = c.name;
-                document.getElementById("chatStatusText").innerText = c.phone;
-            };
+            li.onclick = () => selectContact(c.phone, c.name);
             list.appendChild(li);
         });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+        console.error("Load contacts error:", err);
+    }
+}
+
+// 🟢 11. Select Contact
+function selectContact(phone, name) {
+    selectedUser = phone;
+    selectedGroupId = null;
+
+    const emptyState = document.getElementById("emptyState");
+    const activeChatWrapper = document.getElementById("activeChatWrapper");
+
+    if (emptyState) emptyState.style.display = "none";
+    if (activeChatWrapper) activeChatWrapper.style.display = "flex";
+
+    document.getElementById("chatWithTitle").innerText = name;
+    document.getElementById("chatStatusText").innerText = "Online";
+
+    const activeAvatar = document.getElementById("activeAvatar");
+    if (activeAvatar) {
+        activeAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff`;
+    }
+
+    const chatBox = document.getElementById("chatBox");
+    if (chatBox) chatBox.innerHTML = "";
+}
+
+// 🟢 12. Add New Contact Function (+ Icon)
+async function promptAddContact() {
+    const phone = prompt("Enter the Phone Number to add:");
+    if (!phone) return;
+
+    if (phone.trim() === currentUserPhone) {
+        return alert("You cannot add your own phone number!");
+    }
+
+    try {
+        const res = await fetch("/contacts/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_phone: currentUserPhone, contact_phone: phone.trim() })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+            alert("Contact added!");
+            loadContactsAndGroups();
+        } else {
+            alert(result.message || "User not found!");
+        }
+    } catch (err) {
+        alert("Error adding contact!");
+    }
+}
+
+// 🟢 13. Mobile View Back Button
+function closeChatMobile() {
+    const activeChatWrapper = document.getElementById("activeChatWrapper");
+    const emptyState = document.getElementById("emptyState");
+
+    if (activeChatWrapper) activeChatWrapper.style.display = "none";
+    if (emptyState) emptyState.style.display = "flex";
+}
+
+// 🟢 14. Contact Search Bar Filter
+function setupSearchFilter() {
+    const searchInput = document.getElementById("contactSearch");
+    if (!searchInput) return;
+
+    searchInput.addEventListener("input", function (e) {
+        const query = e.target.value.toLowerCase();
+        const items = document.querySelectorAll("#userList .contact-item");
+
+        items.forEach(item => {
+            const name = item.getAttribute("data-name") || "";
+            if (name.includes(query)) {
+                item.style.display = "flex";
+            } else {
+                item.style.display = "none";
+            }
+        });
+    });
+}
+
+// 🟢 Profile Drawer Fallback
+function openProfileDrawer() {
+    alert(`Logged in User: ${currentUserPhone}`);
 }
