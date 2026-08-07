@@ -235,3 +235,117 @@ def edit_message(data: EditMessageSchema, db: Session = Depends(get_db)):
     msg.is_edited = True
     db.commit()
     return {"success": True, "message": "Message edited successfully"}
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from typing import List
+from app.database import get_db
+from app.chat.models import Message, MessageReaction, GroupMember
+from app.chat.manager import manager
+import json
+
+router = APIRouter(prefix="/chat", tags=["Chat"])
+
+@router.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
+    await manager.connect(user_id, websocket)
+    
+    # Broadcast Online Status
+    await manager.broadcast_to_users({"event": "user_online", "user_id": user_id}, list(manager.active_connections.keys()))
+    
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            data = json.loads(raw_data)
+            event = data.get("event")
+
+            # 1. Direct Message Sending
+            if event == "send_message":
+                receiver_id = data.get("receiver_id")
+                group_id = data.get("group_id")
+                
+                msg = Message(
+                    sender_id=user_id,
+                    receiver_id=receiver_id,
+                    group_id=group_id,
+                    msg_type=data.get("msg_type", "text"),
+                    content=data.get("content"),
+                    media_url=data.get("media_url"),
+                    reply_to_id=data.get("reply_to_id")
+                )
+                db.add(msg)
+                db.commit()
+                db.refresh(msg)
+
+                payload = {
+                    "event": "new_message",
+                    "id": msg.id,
+                    "sender_id": user_id,
+                    "content": msg.content,
+                    "media_url": msg.media_url,
+                    "msg_type": msg.msg_type,
+                    "status": "sent",
+                    "created_at": msg.created_at.isoformat()
+                }
+
+                if receiver_id:
+                    await manager.send_personal_message(payload, receiver_id)
+                    await manager.send_personal_message(payload, user_id)
+                elif group_id:
+                    members = db.query(GroupMember).filter(GroupMember.group_id == group_id).all()
+                    member_ids = [m.user_id for m in members]
+                    await manager.broadcast_to_users(payload, member_ids)
+
+            # 2. Typing Indicator
+            elif event == "typing":
+                target_id = data.get("receiver_id")
+                await manager.send_personal_message({"event": "typing", "sender_id": user_id}, target_id)
+
+            # 3. Read Receipts (Blue Ticks)
+            elif event == "mark_read":
+                msg_id = data.get("message_id")
+                msg = db.query(Message).filter(Message.id == msg_id).first()
+                if msg:
+                    msg.status = "read"
+                    db.commit()
+                    await manager.send_personal_message({"event": "message_read", "message_id": msg_id}, msg.sender_id)
+
+            # 4. WebRTC Signaling (Voice/Video Calls)
+            elif event in ["call_offer", "call_answer", "ice_candidate", "end_call"]:
+                target_id = data.get("target_id")
+                data["sender_id"] = user_id
+                await manager.send_personal_message(data, target_id)
+
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
+        await manager.broadcast_to_users({"event": "user_offline", "user_id": user_id}, list(manager.active_connections.keys()))
+
+
+@router.put("/message/edit/{message_id}")
+def edit_message(message_id: int, new_content: str, user_id: int, db: Session = Depends(get_db)):
+    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == user_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # 15 minute edit window restriction
+    if datetime.utcnow() - msg.created_at > timedelta(minutes=15):
+        raise HTTPException(status_code=400, detail="Edit window expired (15 mins limit)")
+
+    msg.content = new_content
+    msg.is_edited = True
+    db.commit()
+    return {"status": "edited", "content": new_content}
+
+
+@router.delete("/message/delete_everyone/{message_id}")
+def delete_message_everyone(message_id: int, user_id: int, db: Session = Depends(get_db)):
+    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == user_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    msg.is_deleted_everyone = True
+    msg.content = "This message was deleted"
+    msg.media_url = None
+    db.commit()
+    return {"status": "deleted_everyone"}
