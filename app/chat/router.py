@@ -1,20 +1,20 @@
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, File, UploadFile
-from sqlalchemy import Column, String, Integer, DateTime, Boolean, ForeignKey, Text, create_engine
-from sqlalchemy.orm import Session, relationship
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from sqlalchemy import Column, String, Integer, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import Base, engine, get_db
 
 # ------------------------------------------------------------------
-# 🟢 1. ENHANCED DATABASE MODELS (All WhatsApp Features Supported)
+# 🟢 1. DATABASE MODELS
 # ------------------------------------------------------------------
 class User(Base):
     __tablename__ = "users_v2"
     phone = Column(String, primary_key=True, index=True)
     name = Column(String)
-    public_key = Column(Text, nullable=True) # For E2EE (End-to-End Encryption)
+    public_key = Column(Text, nullable=True)
     is_online = Column(Boolean, default=False)
     last_seen = Column(DateTime, default=datetime.utcnow)
 
@@ -35,15 +35,14 @@ class Message(Base):
     __tablename__ = "messages_v2"
     id = Column(Integer, primary_key=True, autoincrement=True)
     sender = Column(String, index=True)
-    receiver = Column(String, nullable=True, index=True) # None if group
+    receiver = Column(String, nullable=True, index=True)
     group_id = Column(Integer, nullable=True, index=True)
     
-    msg_type = Column(String, default="text") # text, image, video, voice, doc, location, contact
-    content = Column(Text)                    # Text or Encrypted Payload
+    msg_type = Column(String, default="text")
+    content = Column(Text)
     file_url = Column(String, nullable=True)
     
-    # Status: 'sent' (✓), 'delivered' (✓✓ grey), 'read' (✓✓ blue)
-    status = Column(String, default="sent") 
+    status = Column(String, default="sent")
     
     reply_to_id = Column(Integer, nullable=True)
     is_edited = Column(Boolean, default=False)
@@ -59,7 +58,7 @@ class Reaction(Base):
 
 class DeleteForMe(Base):
     __tablename__ = "deleted_for_me"
-    id = Column(Integer, primary_key=True, autoincrement=True)  # 👈 primary_key=True என மாற்றவும்
+    id = Column(Integer, primary_key=True, autoincrement=True)
     message_id = Column(Integer)
     user_phone = Column(String)
 
@@ -96,12 +95,10 @@ manager = ConnectionManager()
 # ------------------------------------------------------------------
 # 🟢 3. REAL-TIME WEBSOCKET ENDPOINT
 # ------------------------------------------------------------------
-@websocket_router := APIRouter()
 @router.websocket("/ws/{phone}")
 async def websocket_endpoint(websocket: WebSocket, phone: str, db: Session = Depends(get_db)):
     await manager.connect(phone, websocket)
     
-    # Update online status
     user = db.query(User).filter(User.phone == phone).first()
     if user:
         user.is_online = True
@@ -122,7 +119,7 @@ async def websocket_endpoint(websocket: WebSocket, phone: str, db: Session = Dep
                     "is_typing": data.get("is_typing")
                 }, target)
 
-            # B. SEND MESSAGE (Text, Media, Voice, Location)
+            # B. SEND MESSAGE
             elif action_type == "message":
                 receiver = data.get("receiver")
                 group_id = data.get("group_id")
@@ -161,9 +158,9 @@ async def websocket_endpoint(websocket: WebSocket, phone: str, db: Session = Dep
                     await manager.broadcast_to_group(payload, m_list)
                 elif receiver:
                     await manager.send_personal(payload, receiver)
-                    await manager.send_personal(payload, phone) # Self ack
+                    await manager.send_personal(payload, phone)
 
-            # C. MESSAGE READ TICK UPDATE (Grey -> Blue Tick)
+            # C. READ ACK (Blue Tick)
             elif action_type == "mark_read":
                 msg_ids = data.get("message_ids", [])
                 db.query(Message).filter(Message.id.in_(msg_ids)).update({"status": "read"}, synchronize_session=False)
@@ -171,7 +168,7 @@ async def websocket_endpoint(websocket: WebSocket, phone: str, db: Session = Dep
                 sender_phone = data.get("sender_phone")
                 await manager.send_personal({"type": "read_ack", "message_ids": msg_ids}, sender_phone)
 
-            # D. EMOJI REACTION
+            # D. REACTION
             elif action_type == "reaction":
                 msg_id = data.get("message_id")
                 emoji = data.get("emoji")
@@ -201,7 +198,7 @@ async def websocket_endpoint(websocket: WebSocket, phone: str, db: Session = Dep
 class GroupCreateSchema(BaseModel):
     name: str
     admin_phone: str
-    members: List[str] # Up to 1024 numbers
+    members: List[str]
 
 @router.post("/group/create")
 def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
@@ -213,7 +210,6 @@ def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_group)
 
-    # Add Admin + Members
     all_members = list(set(data.members + [data.admin_phone]))
     for m in all_members:
         db.add(GroupMember(group_id=new_group.id, user_phone=m))
@@ -232,7 +228,6 @@ def edit_message(data: EditMessageSchema, db: Session = Depends(get_db)):
     if not msg:
         return {"success": False, "message": "Message not found or permission denied"}
 
-    # 15-Minute Window Check
     if datetime.utcnow() - msg.timestamp > timedelta(minutes=15):
         return {"success": False, "message": "Edit time window (15 mins) expired!"}
 
