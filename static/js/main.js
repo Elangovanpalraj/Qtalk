@@ -1,3 +1,4 @@
+// 🟢 Global State Variables
 let currentUserPhone = "";
 let selectedUser = "";
 let selectedGroupId = null;
@@ -7,8 +8,14 @@ let replyMessageId = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let sharedCryptoKey = null;
+let unreadCounts = {}; // Track unread messages per user
 
-// 🔒 1. Crypto Key Generator (E2EE)
+// 🔔 Request Browser Notification Permission on Load
+if ("Notification" in window && Notification.permission !== "granted") {
+    Notification.requestPermission();
+}
+
+// 🔒 1. End-to-End Encryption (E2EE) Helpers
 async function getOrCreateCryptoKey() {
     if (sharedCryptoKey) return sharedCryptoKey;
     try {
@@ -23,7 +30,6 @@ async function getOrCreateCryptoKey() {
     return sharedCryptoKey;
 }
 
-// 🟢 Encryption Helper
 async function encryptMessage(plaintext, secretKey) {
     if (!secretKey) return plaintext;
     try {
@@ -46,7 +52,6 @@ async function encryptMessage(plaintext, secretKey) {
     }
 }
 
-// 🟢 Decryption Helper
 async function decryptMessage(encryptedStr, secretKey) {
     if (!secretKey || !encryptedStr || typeof encryptedStr !== 'string' || !encryptedStr.startsWith("{")) return encryptedStr;
     try {
@@ -68,7 +73,7 @@ async function decryptMessage(encryptedStr, secretKey) {
     }
 }
 
-// 🟢 2. Send OTP
+// 🟢 2. Authentication & OTP
 function sendOTP() {
     const phoneInput = document.getElementById("userPhone");
     const phone = phoneInput ? phoneInput.value.trim() : "";
@@ -84,7 +89,6 @@ function sendOTP() {
     alert("OTP Sent successfully! (Default code: 123456)");
 }
 
-// 🟢 3. Verify OTP & Login
 async function verifyOTP() {
     const otpInput = document.getElementById("otpCode");
     const otp = otpInput ? otpInput.value.trim() : "";
@@ -115,7 +119,7 @@ async function verifyOTP() {
     setupSearchFilter();
 }
 
-// 🟢 4. Real-Time WebSocket Connection
+// 🟢 3. Real-Time WebSocket Client
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUserPhone}`);
@@ -124,16 +128,35 @@ function connectWebSocket() {
         const data = JSON.parse(event.data);
 
         if (data.type === "new_message") {
-            // Check if message belongs to currently opened chat
-            if (data.sender === selectedUser || data.receiver === selectedUser || (data.group_id && data.group_id === selectedGroupId)) {
-                if (data.content) {
-                    data.content = await decryptMessage(data.content, sharedCryptoKey);
-                }
+            const isCurrentChat = (
+                data.sender === selectedUser || 
+                data.receiver === selectedUser || 
+                (data.group_id && data.group_id === selectedGroupId)
+            );
+
+            // Decrypt incoming encrypted string if available
+            if (data.content) {
+                data.content = await decryptMessage(data.content, sharedCryptoKey);
+            }
+
+            if (isCurrentChat) {
                 appendMessageToUI(data);
-                
-                // Mark as read if received from selected contact
+                // Auto mark as read if the sender is open
                 if (data.sender === selectedUser) {
                     socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                }
+            } else {
+                // Update Unread Badge Count
+                const sender = data.sender;
+                unreadCounts[sender] = (unreadCounts[sender] || 0) + 1;
+                updateUnreadBadgeUI(sender);
+
+                // Desktop Notification Trigger
+                if (Notification.permission === "granted") {
+                    new Notification(`New message from ${data.sender}`, {
+                        body: data.content || "Sent a media file",
+                        icon: "https://ui-avatars.com/api/?name=" + data.sender
+                    });
                 }
             }
         }
@@ -169,7 +192,7 @@ function connectWebSocket() {
     };
 }
 
-// 🟢 5. Input Triggers
+// 🟢 4. Message Inputs & Dispatcher
 function handleKeyPress(event) {
     if (event.key === "Enter") {
         sendMessage();
@@ -186,14 +209,13 @@ function handleTypingInput() {
     }, 2000);
 }
 
-// 🟢 6. Send Message Function (Duplicate Rendering Fix)
 async function sendMessage(msgType = "text", fileUrl = null) {
     const input = document.getElementById("messageInput");
     const plainText = input ? input.value.trim() : "";
 
     if (!plainText && !fileUrl) return;
     if (!selectedUser && !selectedGroupId) {
-        alert("Please select a user to send message!");
+        alert("Please select a contact or group to send a message!");
         return;
     }
 
@@ -214,38 +236,34 @@ async function sendMessage(msgType = "text", fileUrl = null) {
         reply_to_id: replyMessageId
     };
 
-    // Send to WebSocket (Server will broadcast back to sender & receiver)
     socket.send(JSON.stringify(payload));
 
     if (input) input.value = "";
     replyMessageId = null;
 }
 
-// 🟢 7. Append Message to UI (WhatsApp Right/Left Alignment & Anti-Duplicate Fix)
+// 🟢 5. UI Rendering Engine
 function appendMessageToUI(msg) {
     const chatBox = document.getElementById("chatBox");
     if (!chatBox) return;
 
-    // Prevent Duplicate Message DOM injection
-    if (msg.id && document.getElementById(`msg-${msg.id}`)) {
-        return;
-    }
+    // Prevent duplicate entries
+    if (msg.id && document.getElementById(`msg-${msg.id}`)) return;
 
     const isOutgoing = String(msg.sender) === String(currentUserPhone);
     const msgDiv = document.createElement("div");
     msgDiv.id = msg.id ? `msg-${msg.id}` : `msg-temp-${Date.now()}`;
     
-    // Applying WhatsApp style bubble classes
     msgDiv.className = `message-bubble ${isOutgoing ? "outgoing" : "incoming"}`;
     if (isOutgoing) {
         msgDiv.style.marginLeft = "auto";
         msgDiv.style.marginRight = "0";
-        msgDiv.style.backgroundColor = "#005c4b"; // WhatsApp Green Bubble
+        msgDiv.style.backgroundColor = "#005c4b";
         msgDiv.style.color = "#ffffff";
     } else {
         msgDiv.style.marginLeft = "0";
         msgDiv.style.marginRight = "auto";
-        msgDiv.style.backgroundColor = "#202c33"; // WhatsApp Dark Grey
+        msgDiv.style.backgroundColor = "#202c33";
         msgDiv.style.color = "#ffffff";
     }
 
@@ -279,7 +297,21 @@ function appendMessageToUI(msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 🟢 8. Load Old Chat History when Contact Clicked
+function updateUnreadBadgeUI(phone) {
+    const contactElem = document.querySelector(`[data-phone="${phone}"] .contact-bottom`);
+    if (contactElem) {
+        let badge = contactElem.querySelector(".unread-badge");
+        if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "unread-badge";
+            badge.style.cssText = "background:#00a884; color:#fff; border-radius:50%; padding:2px 6px; font-size:12px; float:right;";
+            contactElem.appendChild(badge);
+        }
+        badge.innerText = unreadCounts[phone] > 0 ? unreadCounts[phone] : "";
+    }
+}
+
+// 🟢 6. Chat & Contact Interactions
 async function loadChatHistory(contactPhone) {
     const chatBox = document.getElementById("chatBox");
     if (!chatBox) return;
@@ -302,10 +334,13 @@ async function loadChatHistory(contactPhone) {
     }
 }
 
-// 🟢 9. Select Contact
 function selectContact(phone, name) {
     selectedUser = phone;
     selectedGroupId = null;
+
+    // Reset unread counts
+    unreadCounts[phone] = 0;
+    updateUnreadBadgeUI(phone);
 
     const emptyState = document.getElementById("emptyState");
     const activeChatWrapper = document.getElementById("activeChatWrapper");
@@ -321,11 +356,70 @@ function selectContact(phone, name) {
         activeAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00a884&color=fff`;
     }
 
-    // Load Chat History
     loadChatHistory(phone);
 }
 
-// 🟢 10. Voice Recording Features
+async function loadContactsAndGroups() {
+    try {
+        const res = await fetch(`/contacts/${currentUserPhone}`);
+        const contacts = await res.json();
+        const list = document.getElementById("userList");
+        if (!list) return;
+        list.innerHTML = "";
+
+        if (!contacts || contacts.length === 0) {
+            list.innerHTML = '<li style="padding:15px; color:#8696a0; text-align:center;">No contacts yet. Click + icon to add.</li>';
+            return;
+        }
+
+        contacts.forEach(c => {
+            const li = document.createElement("li");
+            li.className = "contact-item";
+            li.setAttribute("data-phone", c.phone);
+            li.setAttribute("data-name", c.name.toLowerCase());
+            li.innerHTML = `
+                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=00a884&color=fff"></div>
+                <div class="contact-info" style="width:100%;">
+                    <div class="contact-top"><span>${c.name}</span></div>
+                    <div class="contact-bottom"><span>${c.phone}</span></div>
+                </div>
+            `;
+            li.onclick = () => selectContact(c.phone, c.name);
+            list.appendChild(li);
+        });
+    } catch (err) {
+        console.error("Load contacts error:", err);
+    }
+}
+
+async function promptAddContact() {
+    const phone = prompt("Enter the Phone Number to add:");
+    if (!phone) return;
+
+    if (phone.trim() === currentUserPhone) {
+        return alert("You cannot add your own phone number!");
+    }
+
+    try {
+        const res = await fetch("/contacts/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_phone: currentUserPhone, contact_phone: phone.trim() })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+            alert("Contact added!");
+            loadContactsAndGroups();
+        } else {
+            alert(result.message || "User not found!");
+        }
+    } catch (err) {
+        alert("Error adding contact!");
+    }
+}
+
+// 🟢 7. Audio Recording Features
 async function startVoiceRecording() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -354,8 +448,8 @@ function stopVoiceRecording() {
     if (mediaRecorder) mediaRecorder.stop();
 }
 
-// 🟢 11. React to Message
 function reactToMessage(msgId, emoji) {
+    if (!socket) return;
     socket.send(JSON.stringify({
         type: "reaction",
         message_id: msgId,
@@ -364,68 +458,7 @@ function reactToMessage(msgId, emoji) {
     }));
 }
 
-// 🟢 12. Load Contacts & Display
-async function loadContactsAndGroups() {
-    try {
-        const res = await fetch(`/contacts/${currentUserPhone}`);
-        const contacts = await res.json();
-        const list = document.getElementById("userList");
-        if (!list) return;
-        list.innerHTML = "";
-
-        if (!contacts || contacts.length === 0) {
-            list.innerHTML = '<li style="padding:15px; color:#8696a0; text-align:center;">No contacts yet. Click + icon to add.</li>';
-            return;
-        }
-
-        contacts.forEach(c => {
-            const li = document.createElement("li");
-            li.className = "contact-item";
-            li.setAttribute("data-name", c.name.toLowerCase());
-            li.innerHTML = `
-                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=00a884&color=fff"></div>
-                <div class="contact-info">
-                    <div class="contact-top"><span>${c.name}</span></div>
-                    <div class="contact-bottom"><span>${c.phone}</span></div>
-                </div>
-            `;
-            li.onclick = () => selectContact(c.phone, c.name);
-            list.appendChild(li);
-        });
-    } catch (err) {
-        console.error("Load contacts error:", err);
-    }
-}
-
-// 🟢 13. Add New Contact Function (+ Icon)
-async function promptAddContact() {
-    const phone = prompt("Enter the Phone Number to add:");
-    if (!phone) return;
-
-    if (phone.trim() === currentUserPhone) {
-        return alert("You cannot add your own phone number!");
-    }
-
-    try {
-        const res = await fetch("/contacts/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_phone: currentUserPhone, contact_phone: phone.trim() })
-        });
-
-        const result = await res.json();
-        if (result.success) {
-            alert("Contact added!");
-            loadContactsAndGroups();
-        } else {
-            alert(result.message || "User not found!");
-        }
-    } catch (err) {
-        alert("Error adding contact!");
-    }
-}
-
-// 🟢 14. Mobile View Back Button
+// 🟢 8. View Navigation & Utilities
 function closeChatMobile() {
     const activeChatWrapper = document.getElementById("activeChatWrapper");
     const emptyState = document.getElementById("emptyState");
@@ -434,7 +467,6 @@ function closeChatMobile() {
     if (emptyState) emptyState.style.display = "flex";
 }
 
-// 🟢 15. Contact Search Bar Filter
 function setupSearchFilter() {
     const searchInput = document.getElementById("contactSearch");
     if (!searchInput) return;
