@@ -10,6 +10,13 @@ let audioChunks = [];
 let sharedCryptoKey = null;
 let unreadCounts = {}; // Track unread messages per user
 
+// WebRTC Global State
+let localPeerConnection = null;
+let localStream = null;
+const rtcConfig = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
+
 // 🔔 Request Browser Notification Permission on Load
 if ("Notification" in window && Notification.permission !== "granted") {
     Notification.requestPermission();
@@ -119,75 +126,96 @@ async function verifyOTP() {
     setupSearchFilter();
 }
 
-// 🟢 3. Real-Time WebSocket Client
+// 🟢 3. Real-Time WebSocket Client & WebRTC Listener
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUserPhone}`);
 
     socket.onmessage = async function(event) {
         const data = JSON.parse(event.data);
+        const eventType = data.type || data.event;
 
-        if (data.type === "new_message") {
-            const isCurrentChat = (
-                data.sender === selectedUser || 
-                data.receiver === selectedUser || 
-                (data.group_id && data.group_id === selectedGroupId)
-            );
+        switch (eventType) {
+            case "new_message":
+            case "send_message": {
+                const isCurrentChat = (
+                    data.sender === selectedUser || 
+                    data.receiver === selectedUser || 
+                    (data.group_id && data.group_id === selectedGroupId)
+                );
 
-            // Decrypt incoming encrypted string if available
-            if (data.content) {
-                data.content = await decryptMessage(data.content, sharedCryptoKey);
+                if (data.content) {
+                    data.content = await decryptMessage(data.content, sharedCryptoKey);
+                }
+
+                if (isCurrentChat) {
+                    appendMessageToUI(data);
+                    if (data.sender === selectedUser) {
+                        socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                    }
+                } else {
+                    const sender = data.sender;
+                    unreadCounts[sender] = (unreadCounts[sender] || 0) + 1;
+                    updateUnreadBadgeUI(sender);
+
+                    if (Notification.permission === "granted") {
+                        new Notification(`New message from ${data.sender}`, {
+                            body: data.content || "Sent a media file",
+                            icon: "https://ui-avatars.com/api/?name=" + data.sender
+                        });
+                    }
+                }
+                break;
             }
-
-            if (isCurrentChat) {
-                appendMessageToUI(data);
-                // Auto mark as read if the sender is open
+            case "typing": {
                 if (data.sender === selectedUser) {
-                    socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                    const statusElem = document.getElementById("chatStatusText") || document.getElementById("typing-indicator");
+                    if (statusElem) {
+                        statusElem.innerText = data.is_typing ? "typing..." : "Online";
+                        statusElem.style.color = data.is_typing ? "#00a884" : "#8696a0";
+                    }
                 }
-            } else {
-                // Update Unread Badge Count
-                const sender = data.sender;
-                unreadCounts[sender] = (unreadCounts[sender] || 0) + 1;
-                updateUnreadBadgeUI(sender);
-
-                // Desktop Notification Trigger
-                if (Notification.permission === "granted") {
-                    new Notification(`New message from ${data.sender}`, {
-                        body: data.content || "Sent a media file",
-                        icon: "https://ui-avatars.com/api/?name=" + data.sender
-                    });
-                }
+                break;
             }
-        }
-        else if (data.type === "typing" && data.sender === selectedUser) {
-            const statusElem = document.getElementById("chatStatusText");
-            if (statusElem) {
-                statusElem.innerText = data.is_typing ? "typing..." : "Online";
-                statusElem.style.color = data.is_typing ? "#00a884" : "#8696a0";
-            }
-        }
-        else if (data.type === "read_ack") {
-            if (data.message_ids) {
-                data.message_ids.forEach(id => {
+            case "read_ack":
+            case "message_read": {
+                const msgIds = data.message_ids || (data.message_id ? [data.message_id] : []);
+                msgIds.forEach(id => {
                     const tickElem = document.getElementById(`tick-${id}`);
                     if (tickElem) {
                         tickElem.innerHTML = '<i class="fa-solid fa-check-double" style="color:#53bdeb;"></i>';
                     }
                 });
+                break;
             }
-        }
-        else if (data.type === "reaction") {
-            const msgElem = document.getElementById(`msg-${data.message_id}`);
-            if (msgElem) {
-                let reactBox = msgElem.querySelector(".reaction-badge");
-                if (!reactBox) {
-                    reactBox = document.createElement("span");
-                    reactBox.className = "reaction-badge";
-                    msgElem.appendChild(reactBox);
+            case "reaction": {
+                const msgElem = document.getElementById(`msg-${data.message_id}`);
+                if (msgElem) {
+                    let reactBox = msgElem.querySelector(".reaction-badge");
+                    if (!reactBox) {
+                        reactBox = document.createElement("span");
+                        reactBox.className = "reaction-badge";
+                        msgElem.appendChild(reactBox);
+                    }
+                    reactBox.innerText = data.emoji;
                 }
-                reactBox.innerText = data.emoji;
+                break;
             }
+
+            // --- WebRTC Video/Audio Signaling ---
+            case "call_offer":
+                await handleCallOffer(data);
+                break;
+            case "call_answer":
+                if (localPeerConnection) {
+                    await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                }
+                break;
+            case "ice_candidate":
+                if (localPeerConnection && data.candidate) {
+                    await localPeerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+                }
+                break;
         }
     };
 }
@@ -244,10 +272,9 @@ async function sendMessage(msgType = "text", fileUrl = null) {
 
 // 🟢 5. UI Rendering Engine
 function appendMessageToUI(msg) {
-    const chatBox = document.getElementById("chatBox");
+    const chatBox = document.getElementById("chatBox") || document.getElementById("chat-box");
     if (!chatBox) return;
 
-    // Prevent duplicate entries
     if (msg.id && document.getElementById(`msg-${msg.id}`)) return;
 
     const isOutgoing = String(msg.sender) === String(currentUserPhone);
@@ -313,7 +340,7 @@ function updateUnreadBadgeUI(phone) {
 
 // 🟢 6. Chat & Contact Interactions
 async function loadChatHistory(contactPhone) {
-    const chatBox = document.getElementById("chatBox");
+    const chatBox = document.getElementById("chatBox") || document.getElementById("chat-box");
     if (!chatBox) return;
     chatBox.innerHTML = "";
 
@@ -338,7 +365,6 @@ function selectContact(phone, name) {
     selectedUser = phone;
     selectedGroupId = null;
 
-    // Reset unread counts
     unreadCounts[phone] = 0;
     updateUnreadBadgeUI(phone);
 
@@ -348,8 +374,11 @@ function selectContact(phone, name) {
     if (emptyState) emptyState.style.display = "none";
     if (activeChatWrapper) activeChatWrapper.style.display = "flex";
 
-    document.getElementById("chatWithTitle").innerText = name;
-    document.getElementById("chatStatusText").innerText = "Online";
+    const titleElem = document.getElementById("chatWithTitle");
+    if (titleElem) titleElem.innerText = name;
+
+    const statusElem = document.getElementById("chatStatusText");
+    if (statusElem) statusElem.innerText = "Online";
 
     const activeAvatar = document.getElementById("activeAvatar");
     if (activeAvatar) {
@@ -458,7 +487,83 @@ function reactToMessage(msgId, emoji) {
     }));
 }
 
-// 🟢 8. View Navigation & Utilities
+// 🟢 8. WebRTC Calling Engine
+async function startCall(video = true) {
+    if (!selectedUser) {
+        alert("Select a user to call first!");
+        return;
+    }
+    
+    localPeerConnection = new RTCPeerConnection(rtcConfig);
+    
+    localStream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
+    const localVideoElem = document.getElementById("localVideo");
+    if (localVideoElem) localVideoElem.srcObject = localStream;
+    
+    localStream.getTracks().forEach(track => localPeerConnection.addTrack(track, localStream));
+
+    localPeerConnection.onicecandidate = (event) => {
+        if (event.candidate && socket) {
+            socket.send(JSON.stringify({
+                type: "ice_candidate",
+                receiver: selectedUser,
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    localPeerConnection.ontrack = (event) => {
+        const remoteVideoElem = document.getElementById("remoteVideo");
+        if (remoteVideoElem) remoteVideoElem.srcObject = event.streams[0];
+    };
+
+    let offer = await localPeerConnection.createOffer();
+    await localPeerConnection.setLocalDescription(offer);
+    
+    socket.send(JSON.stringify({
+        type: "call_offer",
+        receiver: selectedUser,
+        sender: currentUserPhone,
+        sdp: offer
+    }));
+}
+
+async function handleCallOffer(data) {
+    localPeerConnection = new RTCPeerConnection(rtcConfig);
+    await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const localVideoElem = document.getElementById("localVideo");
+    if (localVideoElem) localVideoElem.srcObject = localStream;
+    
+    localStream.getTracks().forEach(track => localPeerConnection.addTrack(track, localStream));
+
+    localPeerConnection.onicecandidate = (event) => {
+        if (event.candidate && socket) {
+            socket.send(JSON.stringify({
+                type: "ice_candidate",
+                receiver: data.sender,
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    localPeerConnection.ontrack = (event) => {
+        const remoteVideoElem = document.getElementById("remoteVideo");
+        if (remoteVideoElem) remoteVideoElem.srcObject = event.streams[0];
+    };
+
+    let answer = await localPeerConnection.createAnswer();
+    await localPeerConnection.setLocalDescription(answer);
+    
+    socket.send(JSON.stringify({
+        type: "call_answer",
+        receiver: data.sender,
+        sdp: answer
+    }));
+}
+
+// 🟢 9. Navigation & UI Utilities
 function closeChatMobile() {
     const activeChatWrapper = document.getElementById("activeChatWrapper");
     const emptyState = document.getElementById("emptyState");
@@ -488,115 +593,4 @@ function setupSearchFilter() {
 
 function openProfileDrawer() {
     alert(`Logged in User: ${currentUserPhone}`);
-}
-
-
-let currentUserId = 1; // Replace with actual logged-in user ID
-let targetUserId = 2;
-let ws = new WebSocket(`ws://${window.location.host}/chat/ws/${currentUserId}`);
-let localPeerConnection;
-
-// WebRTC Configuration
-const rtcConfig = {
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-};
-
-ws.onmessage = async (event) => {
-    let data = JSON.parse(event.data);
-
-    switch(data.event) {
-        case "new_message":
-            renderMessage(data);
-            break;
-        case "typing":
-            document.getElementById("typing-indicator").innerText = "Typing...";
-            setTimeout(() => { document.getElementById("typing-indicator").innerText = ""; }, 2000);
-            break;
-        case "message_read":
-            updateTicksToRead(data.message_id);
-            break;
-        
-        // --- WebRTC Voice/Video Calling Signaling ---
-        case "call_offer":
-            handleCallOffer(data);
-            break;
-        case "call_answer":
-            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-            break;
-        case "ice_candidate":
-            await localPeerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            break;
-    }
-};
-
-// Send Message Function
-function sendMessage(content, msgType = "text") {
-    let payload = {
-        event: "send_message",
-        receiver_id: targetUserId,
-        msg_type: msgType,
-        content: content
-    };
-    ws.send(JSON.stringify(payload));
-}
-
-// Send Typing Indicator
-function triggerTyping() {
-    ws.send(JSON.stringify({ event: "typing", receiver_id: targetUserId }));
-}
-
-// Render Messages on UI
-function renderMessage(msg) {
-    let chatBox = document.getElementById("chat-box");
-    let msgDiv = document.createElement("div");
-    msgDiv.className = msg.sender_id === currentUserId ? "message outgoing" : "message incoming";
-    msgDiv.innerHTML = `
-        <p>${msg.content}</p>
-        <span class="ticks" id="tick-${msg.id}">${msg.sender_id === currentUserId ? '✓✓' : ''}</span>
-    `;
-    chatBox.appendChild(msgDiv);
-}
-
-// Mark Message as Read
-function markAsRead(messageId) {
-    ws.send(JSON.stringify({ event: "mark_read", message_id: messageId }));
-}
-
-function updateTicksToRead(messageId) {
-    let tickSpan = document.getElementById(`tick-${messageId}`);
-    if(tickSpan) {
-        tickSpan.style.color = "#34B7F1"; // WhatsApp Blue tick color
-    }
-}
-
-// WebRTC Call Setup
-async function startCall(video = true) {
-    localPeerConnection = new RTCPeerConnection(rtcConfig);
-    
-    let stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
-    document.getElementById("localVideo").srcObject = stream;
-    stream.getTracks().forEach(track => localPeerConnection.addTrack(track, stream));
-
-    localPeerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            ws.send(JSON.stringify({ event: "ice_candidate", target_id: targetUserId, candidate: event.candidate }));
-        }
-    };
-
-    let offer = await localPeerConnection.createOffer();
-    await localPeerConnection.setLocalDescription(offer);
-    ws.send(JSON.stringify({ event: "call_offer", target_id: targetUserId, sdp: offer }));
-}
-
-async function handleCallOffer(data) {
-    localPeerConnection = new RTCPeerConnection(rtcConfig);
-    await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    
-    let stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById("localVideo").srcObject = stream;
-    stream.getTracks().forEach(track => localPeerConnection.addTrack(track, stream));
-
-    let answer = await localPeerConnection.createAnswer();
-    await localPeerConnection.setLocalDescription(answer);
-    ws.send(JSON.stringify({ event: "call_answer", target_id: data.sender_id, sdp: answer }));
 }
