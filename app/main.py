@@ -81,3 +81,26 @@ def health_check():
 async def get_app():
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
+
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from app.database import engine, Base
+from app.chat.router import router as chat_router
+from app.status.router import router as status_router
+
+# Initialize Tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Qtalk Backend Engine")
+
+# Static Files (Uploads, Images, CSS, JS)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Include Routers
+app.include_router(chat_router)
+app.include_router(status_router)
+
+@app.get("/")
+def root():
+    return {"message": "Qtalk Engine is Running Perfectly!"}
