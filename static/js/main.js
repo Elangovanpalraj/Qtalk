@@ -489,3 +489,114 @@ function setupSearchFilter() {
 function openProfileDrawer() {
     alert(`Logged in User: ${currentUserPhone}`);
 }
+
+
+let currentUserId = 1; // Replace with actual logged-in user ID
+let targetUserId = 2;
+let ws = new WebSocket(`ws://${window.location.host}/chat/ws/${currentUserId}`);
+let localPeerConnection;
+
+// WebRTC Configuration
+const rtcConfig = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
+
+ws.onmessage = async (event) => {
+    let data = JSON.parse(event.data);
+
+    switch(data.event) {
+        case "new_message":
+            renderMessage(data);
+            break;
+        case "typing":
+            document.getElementById("typing-indicator").innerText = "Typing...";
+            setTimeout(() => { document.getElementById("typing-indicator").innerText = ""; }, 2000);
+            break;
+        case "message_read":
+            updateTicksToRead(data.message_id);
+            break;
+        
+        // --- WebRTC Voice/Video Calling Signaling ---
+        case "call_offer":
+            handleCallOffer(data);
+            break;
+        case "call_answer":
+            await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            break;
+        case "ice_candidate":
+            await localPeerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            break;
+    }
+};
+
+// Send Message Function
+function sendMessage(content, msgType = "text") {
+    let payload = {
+        event: "send_message",
+        receiver_id: targetUserId,
+        msg_type: msgType,
+        content: content
+    };
+    ws.send(JSON.stringify(payload));
+}
+
+// Send Typing Indicator
+function triggerTyping() {
+    ws.send(JSON.stringify({ event: "typing", receiver_id: targetUserId }));
+}
+
+// Render Messages on UI
+function renderMessage(msg) {
+    let chatBox = document.getElementById("chat-box");
+    let msgDiv = document.createElement("div");
+    msgDiv.className = msg.sender_id === currentUserId ? "message outgoing" : "message incoming";
+    msgDiv.innerHTML = `
+        <p>${msg.content}</p>
+        <span class="ticks" id="tick-${msg.id}">${msg.sender_id === currentUserId ? '✓✓' : ''}</span>
+    `;
+    chatBox.appendChild(msgDiv);
+}
+
+// Mark Message as Read
+function markAsRead(messageId) {
+    ws.send(JSON.stringify({ event: "mark_read", message_id: messageId }));
+}
+
+function updateTicksToRead(messageId) {
+    let tickSpan = document.getElementById(`tick-${messageId}`);
+    if(tickSpan) {
+        tickSpan.style.color = "#34B7F1"; // WhatsApp Blue tick color
+    }
+}
+
+// WebRTC Call Setup
+async function startCall(video = true) {
+    localPeerConnection = new RTCPeerConnection(rtcConfig);
+    
+    let stream = await navigator.mediaDevices.getUserMedia({ video: video, audio: true });
+    document.getElementById("localVideo").srcObject = stream;
+    stream.getTracks().forEach(track => localPeerConnection.addTrack(track, stream));
+
+    localPeerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+            ws.send(JSON.stringify({ event: "ice_candidate", target_id: targetUserId, candidate: event.candidate }));
+        }
+    };
+
+    let offer = await localPeerConnection.createOffer();
+    await localPeerConnection.setLocalDescription(offer);
+    ws.send(JSON.stringify({ event: "call_offer", target_id: targetUserId, sdp: offer }));
+}
+
+async function handleCallOffer(data) {
+    localPeerConnection = new RTCPeerConnection(rtcConfig);
+    await localPeerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    
+    let stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById("localVideo").srcObject = stream;
+    stream.getTracks().forEach(track => localPeerConnection.addTrack(track, stream));
+
+    let answer = await localPeerConnection.createAnswer();
+    await localPeerConnection.setLocalDescription(answer);
+    ws.send(JSON.stringify({ event: "call_answer", target_id: data.sender_id, sdp: answer }));
+}
