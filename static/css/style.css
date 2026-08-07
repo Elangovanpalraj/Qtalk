@@ -184,3 +184,34 @@ body { background-color: #111b21; color: #e9edef; height: 100vh; overflow: hidde
     width: 30px;
     height: 30px;
 }
+#chatBox {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.message-bubble {
+    max-width: 65%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+    position: relative;
+    word-break: break-word;
+}
+
+.message-bubble.outgoing {
+    align-self: flex-end;
+    background-color: #005c4b !important;
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+
+.message-bubble.incoming {
+    align-self: flex-start;
+    background-color: #202c33 !important;
+    color: #fff;
+    border-bottom-left-radius: 2px;
+}
