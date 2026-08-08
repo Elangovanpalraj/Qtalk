@@ -1,13 +1,10 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
-psycopg2-binary
-websockets
-python-multipart
 pydantic
-pytest
-httpx
-Pillow
-jinja2
 passlib[bcrypt]
 bcrypt
+python-jose[cryptography]
+python-multipart
+jinja2
+websockets
