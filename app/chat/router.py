@@ -21,7 +21,7 @@ from app.auth.models import User
 from app.chat.models import (
     Message, MessageReaction, Group, GroupMember, 
     MessageReceipt, UserStatus, UserPresence, ChatBackup,
-    GroupCallSession, MediaAsset
+    GroupCallSession, MediaAsset, Poll, PollOption, PollVote
 )
 from app.chat.manager import manager
 
@@ -72,6 +72,19 @@ class AnnouncementChannelSchema(BaseModel):
     name: str
     admin_id: int
     is_announcement: bool = True
+
+
+# --- Poll Schemas ---
+class PollCreateSchema(BaseModel):
+    group_id: int
+    sender_id: int
+    question: str
+    options: List[str]
+
+
+class PollVoteSchema(BaseModel):
+    user_id: int
+    option_id: int
 
 
 # ------------------------------------------------------------------
@@ -159,8 +172,82 @@ async def upload_and_compress_media(file: UploadFile = File(...), user_id: int =
 
 
 # ------------------------------------------------------------------
-# 🟢 5. ADVANCED FEATURES: SEARCH, PINNING, GALLERY, PRESENCE & BACKUP
+# 🟢 5. ADVANCED FEATURES: SEARCH, PINNING, FORWARDING, POLLS & BACKUP
 # ------------------------------------------------------------------
+
+# --- Feature 3: Message Forwarding API ---
+@router.post("/messages/forward/{message_id}", tags=["Chat Actions"])
+def forward_message_endpoint(message_id: int, target_group_id: int, sender_id: int = Query(...), db: Session = Depends(get_db)):
+    original_msg = db.query(Message).filter(Message.id == message_id).first()
+    if not original_msg:
+        raise HTTPException(status_code=404, detail="Original message not found")
+        
+    new_message = Message(
+        sender_id=sender_id,
+        group_id=target_group_id,
+        content=original_msg.content,
+        media_url=original_msg.media_url,
+        msg_type=original_msg.msg_type,
+        is_forwarded=True
+    )
+    db.add(new_message)
+    db.commit()
+    db.refresh(new_message)
+    return {"success": True, "message": "Message forwarded successfully", "new_message_id": new_message.id}
+
+
+# --- Feature 6: Polls & Surveys APIs ---
+@router.post("/polls/create", tags=["Polls"])
+def create_poll_endpoint(data: PollCreateSchema, db: Session = Depends(get_db)):
+    new_poll = Poll(group_id=data.group_id, created_by=data.sender_id, question=data.question)
+    db.add(new_poll)
+    db.flush() # ID generate aagum
+    
+    for opt_text in data.options:
+        new_option = PollOption(poll_id=new_poll.id, option_text=opt_text)
+        db.add(new_option)
+        
+    db.commit()
+    return {"success": True, "poll_id": new_poll.id, "message": "Poll created successfully"}
+
+
+@router.post("/polls/vote/{poll_id}", tags=["Polls"])
+def cast_poll_vote(poll_id: int, data: PollVoteSchema, db: Session = Depends(get_db)):
+    # Check if user already voted (UniqueConstraint handles this too)
+    existing_vote = db.query(PollVote).filter(
+        PollVote.poll_id == poll_id, PollVote.user_id == data.user_id
+    ).first()
+    
+    if existing_vote:
+        raise HTTPException(status_code=400, detail="User has already voted in this poll")
+
+    option = db.query(PollOption).filter(PollOption.id == data.option_id, PollOption.poll_id == poll_id).first()
+    if not option:
+        raise HTTPException(status_code=404, detail="Poll option not found")
+
+    new_vote = PollVote(poll_id=poll_id, option_id=data.option_id, user_id=data.user_id)
+    option.vote_count += 1
+    
+    db.add(new_vote)
+    db.commit()
+    return {"success": True, "message": "Vote casted successfully"}
+
+
+@router.get("/polls/{poll_id}", tags=["Polls"])
+def get_poll_results(poll_id: int, db: Session = Depends(get_db)):
+    poll = db.query(Poll).filter(Poll.id == poll_id).first()
+    if not poll:
+        raise HTTPException(status_code=404, detail="Poll not found")
+        
+    options = db.query(PollOption).filter(PollOption.poll_id == poll_id).all()
+    return {
+        "success": True,
+        "poll_id": poll.id,
+        "question": poll.question,
+        "options": [{"id": o.id, "text": o.option_text, "votes": o.vote_count} for o in options]
+    }
+
+
 @router.get("/messages/search/{user_id}/{other_id}")
 def search_chat_messages(
     user_id: int, 
