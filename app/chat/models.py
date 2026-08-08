@@ -61,6 +61,10 @@ class Message(Base):
     is_deleted_everyone = Column(Boolean, default=False)
     deleted_for_users = Column(Text, default="")  # Comma-separated user IDs (e.g., "1,4,7")
     
+    # Disappearing Messages Fields
+    disappearing_duration = Column(Integer, default=0)  # in seconds (e.g., 86400 for 24h)
+    expires_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -108,5 +112,27 @@ class UserStatus(Base):
     caption = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(hours=24))
+
+    user = relationship("User")
+
+
+class UserPresence(Base):
+    __tablename__ = "user_presences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    is_online = Column(Boolean, default=False)
+    last_seen = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
+
+class ChatBackup(Base):
+    __tablename__ = "chat_backups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    backup_data = Column(Text, nullable=False)  # JSON formatted chats export
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
