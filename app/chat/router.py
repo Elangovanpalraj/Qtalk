@@ -4,12 +4,14 @@ from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from sqlalchemy import or_, and_
 
 from app.database import get_db
 from app.chat.models import Message, MessageReaction, Group, GroupMember
 from app.chat.manager import manager
 
-router = APIRouter(prefix="/chat", tags=["Chat Core & Real-time"])
+# Prefix-ah remove panniyullathu, enenal frontend direct-ah /ws matrum /messages call pannugirathu.
+router = APIRouter(tags=["Chat Core & Real-time"])
 
 
 # ------------------------------------------------------------------
@@ -32,7 +34,25 @@ class ReactionSchema(BaseModel):
 
 
 # ------------------------------------------------------------------
-# 🟢 2. WEBSOCKET REAL-TIME ENDPOINT
+# 🟢 2. FETCH CHAT HISTORY (Fixes 404 Messages API Error)
+# ------------------------------------------------------------------
+@router.get("/messages/{user_id}/{other_id}")
+def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db)):
+    """
+    iruvarukku idaiyeana chat history-ai database-il irunthu eduthu tharum API.
+    """
+    messages = db.query(Message).filter(
+        or_(
+            and_(Message.sender_id == user_id, Message.receiver_id == other_id),
+            and_(Message.sender_id == other_id, Message.receiver_id == user_id)
+        )
+    ).order_by(Message.created_at.asc()).all()
+    
+    return messages
+
+
+# ------------------------------------------------------------------
+# 🟢 3. WEBSOCKET REAL-TIME ENDPOINT
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
@@ -84,12 +104,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                 }
 
                 if group_id:
-                    # Broadcast to all group members except sender
                     members = db.query(GroupMember).filter(GroupMember.group_id == group_id).all()
                     member_ids = [m.user_id for m in members]
                     await manager.broadcast_to_users(payload, member_ids, exclude_sender_id=user_id)
                 elif receiver_id:
-                    # Send to receiver and mirror back to sender
                     await manager.send_personal_message(payload, receiver_id)
                     await manager.send_personal_message(payload, user_id)
 
@@ -157,13 +175,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
 
 # ------------------------------------------------------------------
-# 🟢 3. GROUP MANAGEMENT ENDPOINTS
+# 🟢 4. GROUP MANAGEMENT ENDPOINTS
 # ------------------------------------------------------------------
 @router.post("/group/create", tags=["Groups"])
 def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
-    """
-    புதிய Group உருவாக்குவதற்கான API endpoint.
-    """
     if len(data.member_ids) > 1024:
         raise HTTPException(status_code=400, detail="Group capacity exceeded (Max 1024 members)")
 
@@ -172,7 +187,6 @@ def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_group)
 
-    # Admin + Members அனைவரையும் சேர்க்கவும்
     all_members = list(set(data.member_ids + [data.admin_id]))
     for m_id in all_members:
         is_admin = (m_id == data.admin_id)
@@ -183,18 +197,14 @@ def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------
-# 🟢 4. MESSAGE ACTIONS (Edit, Delete for Everyone, Delete for Me)
+# 🟢 5. MESSAGE ACTIONS (Edit, Delete for Everyone, Delete for Me)
 # ------------------------------------------------------------------
 @router.put("/message/edit/{message_id}", tags=["Chat Actions"])
 def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends(get_db)):
-    """
-    அனுப்பிய மெசேஜை 15 நிமிடங்களுக்குள் எடிட் செய்ய பயன்படும் API.
-    """
     msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == data.user_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found or permission denied")
 
-    # 15 நிமிட நேர வரம்பு (15 Minutes Edit Window)
     if datetime.utcnow() - msg.created_at > timedelta(minutes=15):
         raise HTTPException(status_code=400, detail="Edit window expired (15 mins limit)")
 
@@ -206,9 +216,6 @@ def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends
 
 @router.delete("/message/delete_everyone/{message_id}", tags=["Chat Actions"])
 def delete_message_everyone(message_id: int, user_id: int, db: Session = Depends(get_db)):
-    """
-    வாட்ஸ்அப்பில் 'Delete for Everyone' செய்வது போல மெசேஜை அனைவருக்கும் மறைக்கும் API.
-    """
     msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == user_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found or permission denied")
@@ -222,9 +229,6 @@ def delete_message_everyone(message_id: int, user_id: int, db: Session = Depends
 
 @router.post("/message/delete_for_me/{message_id}", tags=["Chat Actions"])
 def delete_message_for_me(message_id: int, user_id: int, db: Session = Depends(get_db)):
-    """
-    மெசேஜை குறிப்பிட்ட பயனருக்கு மட்டும் 'Delete for Me' செய்யும் API.
-    """
     msg = db.query(Message).filter(Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
