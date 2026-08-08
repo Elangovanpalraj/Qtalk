@@ -10,7 +10,6 @@ from app.database import get_db
 from app.chat.models import Message, MessageReaction, Group, GroupMember
 from app.chat.manager import manager
 
-# Prefix-ah remove panniyullathu, enenal frontend direct-ah /ws matrum /messages call pannugirathu.
 router = APIRouter(tags=["Chat Core & Real-time"])
 
 
