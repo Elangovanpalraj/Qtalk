@@ -1,10 +1,10 @@
 import json
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, ilike
 
 from app.database import get_db
 from app.chat.models import Message, MessageReaction, Group, GroupMember
@@ -32,6 +32,11 @@ class ReactionSchema(BaseModel):
     emoji: str
 
 
+class PinMessageSchema(BaseModel):
+    user_id: int
+    is_pinned: bool
+
+
 # ------------------------------------------------------------------
 # 🟢 2. FETCH CHAT HISTORY (Fixes 404 Messages API Error)
 # ------------------------------------------------------------------
@@ -51,7 +56,65 @@ def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db))
 
 
 # ------------------------------------------------------------------
-# 🟢 3. WEBSOCKET REAL-TIME ENDPOINT
+# 🟢 3. ADVANCED FEATURES: SEARCH & PINNING APIS
+# ------------------------------------------------------------------
+@router.get("/messages/search/{user_id}/{other_id}")
+def search_chat_messages(
+    user_id: int, 
+    other_id: int, 
+    query: str = Query(..., min_length=1), 
+    db: Session = Depends(get_db)
+):
+    """
+    Keywords-ai vachu chat history-ai search seiyum API.
+    """
+    messages = db.query(Message).filter(
+        or_(
+            and_(Message.sender_id == user_id, Message.receiver_id == other_id),
+            and_(Message.sender_id == other_id, Message.receiver_id == user_id)
+        ),
+        Message.content.ilike(f"%{query}%"),
+        Message.is_deleted_everyone == False
+    ).order_by(Message.created_at.asc()).all()
+
+    return {"success": True, "count": len(messages), "messages": messages}
+
+
+@router.put("/message/pin/{message_id}", tags=["Chat Actions"])
+def pin_unpin_message(message_id: int, data: PinMessageSchema, db: Session = Depends(get_db)):
+    """
+    Oru message-ah pin seiyvatharku allathu unpin seiyvatharku.
+    """
+    msg = db.query(Message).filter(Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    msg.is_pinned = data.is_pinned
+    db.commit()
+    
+    status_text = "pinned" if data.is_pinned else "unpinned"
+    return {"success": True, "message_id": message_id, "status": status_text}
+
+
+@router.get("/messages/pinned/{user_id}/{other_id}")
+def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_db)):
+    """
+    Iruvarukku idaiyeana pinned messages-ai mattum eduthu tharum.
+    """
+    pinned_msgs = db.query(Message).filter(
+        or_(
+            and_(Message.sender_id == user_id, Message.receiver_id == other_id),
+            and_(Message.sender_id == other_id, Message.receiver_id == user_id)
+        ),
+        Message.is_pinned == True,
+        Message.is_deleted_everyone == False
+    ).order_by(Message.created_at.desc()).all()
+
+    return {"success": True, "pinned_messages": pinned_msgs}
+
+
+# ------------------------------------------------------------------
+# 🟢 4. WEBSOCKET REAL-TIME ENDPOINT
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
@@ -67,9 +130,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
             data = json.loads(raw_data)
             event = data.get("event") or data.get("type")
 
-            # ------------------------------------------------------
             # A. SEND MESSAGE (Direct or Group)
-            # ------------------------------------------------------
             if event in ["send_message", "message"]:
                 receiver_id = data.get("receiver_id")
                 group_id = data.get("group_id")
@@ -82,6 +143,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     content=data.get("content"),
                     media_url=data.get("media_url") or data.get("file_url"),
                     reply_to_id=data.get("reply_to_id"),
+                    is_forwarded=data.get("is_forwarded", False),
                     status="delivered" if (receiver_id and manager.is_user_online(receiver_id)) else "sent"
                 )
                 db.add(new_msg)
@@ -99,6 +161,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     "media_url": new_msg.media_url,
                     "status": new_msg.status,
                     "reply_to_id": new_msg.reply_to_id,
+                    "is_forwarded": new_msg.is_forwarded,
                     "created_at": new_msg.created_at.isoformat()
                 }
 
@@ -110,18 +173,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     await manager.send_personal_message(payload, receiver_id)
                     await manager.send_personal_message(payload, user_id)
 
-            # ------------------------------------------------------
             # B. TYPING INDICATOR
-            # ------------------------------------------------------
             elif event == "typing":
                 target_id = data.get("receiver_id")
                 is_typing = data.get("is_typing", True)
                 if target_id:
                     await manager.send_typing_indicator(user_id, target_id, is_typing)
 
-            # ------------------------------------------------------
             # C. MARK AS READ (Blue Ticks)
-            # ------------------------------------------------------
             elif event == "mark_read":
                 msg_ids = data.get("message_ids", [])
                 if msg_ids:
@@ -137,9 +196,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                             sender_id
                         )
 
-            # ------------------------------------------------------
             # D. EMOJI REACTIONS
-            # ------------------------------------------------------
             elif event == "reaction":
                 msg_id = data.get("message_id")
                 emoji = data.get("emoji")
@@ -160,9 +217,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     if target_id:
                         await manager.send_personal_message(react_payload, target_id)
 
-            # ------------------------------------------------------
-            # E. WEBRTC CALL SIGNALING (Voice & Video Calls)
-            # ------------------------------------------------------
+            # E. WEBRTC CALL SIGNALING
             elif event in ["call_offer", "call_answer", "ice_candidate", "end_call"]:
                 target_id = data.get("target_id")
                 if target_id:
@@ -174,7 +229,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
 
 # ------------------------------------------------------------------
-# 🟢 4. GROUP MANAGEMENT ENDPOINTS
+# 🟢 5. GROUP MANAGEMENT ENDPOINTS
 # ------------------------------------------------------------------
 @router.post("/group/create", tags=["Groups"])
 def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
@@ -196,7 +251,7 @@ def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------
-# 🟢 5. MESSAGE ACTIONS (Edit, Delete for Everyone, Delete for Me)
+# 🟢 6. MESSAGE ACTIONS (Edit, Delete, etc.)
 # ------------------------------------------------------------------
 @router.put("/message/edit/{message_id}", tags=["Chat Actions"])
 def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends(get_db)):
