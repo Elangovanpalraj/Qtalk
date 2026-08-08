@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Qtalk</title>
+    <title>Qtalk - Web Application</title>
     <!-- Stylesheets -->
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -110,23 +110,9 @@
                 </div>
             </div>
 
-            <!-- Contact List -->
+            <!-- Contact List (Dynamic rendering via main.js) -->
             <ul class="contact-list" id="userList">
-                <li class="contact-item active" onclick="openChatMobile()">
-                    <div class="contact-avatar">
-                        <img src="https://ui-avatars.com/api/?name=John+Doe" alt="John Doe">
-                        <span class="badge online"></span>
-                    </div>
-                    <div class="contact-info">
-                        <div class="contact-top">
-                            <span>John Doe</span>
-                            <span style="font-size: 0.75rem; color: #8696a0;">10:45 AM</span>
-                        </div>
-                        <div class="contact-bottom">
-                            <span class="last-msg">Hey! CSS is fixed now 🔥</span>
-                        </div>
-                    </div>
-                </li>
+                <!-- Javascript will inject contacts dynamically here -->
             </ul>
 
             <!-- Mobile Bottom Nav -->
@@ -152,14 +138,14 @@
             <!-- Desktop Empty State -->
             <div class="empty-state desktop-only" id="emptyState">
                 <div class="empty-content">
-                    <i class="fa-brands fa-whatsapp whatsapp-big-icon"></i>
+                    <i class="fa-solid fa-comments whatsapp-big-icon" style="color: #00a884; font-size: 4rem; margin-bottom: 20px;"></i>
                     <h2>Qtalk Desktop</h2>
                     <p>Select a contact to start messaging securely across all your devices.</p>
                 </div>
             </div>
 
             <!-- Active Chat View -->
-            <div class="active-chat-wrapper" id="activeChatWrapper" style="display: flex;">
+            <div class="active-chat-wrapper" id="activeChatWrapper" style="display: none;">
                 <div class="chat-header">
                     <div class="chat-header-info">
                         <button class="back-btn mobile-only" onclick="closeChatMobile()"><i class="fa-solid fa-arrow-left"></i></button>
@@ -186,20 +172,7 @@
 
                 <!-- Chat Box Screen -->
                 <div class="chat-box" id="chatBox">
-                    <div class="msg received">
-                        Hey! How is the project setup going?
-                        <div class="msg-meta">10:42 AM</div>
-                    </div>
-
-                    <div class="msg sent">
-                        Working on perfecting the HTML and CSS right now!
-                        <div class="msg-meta">10:44 AM <i class="fa-solid fa-check-double blue-tick"></i></div>
-                    </div>
-
-                    <div class="msg sent">
-                        Hey! CSS is fixed now 🔥
-                        <div class="msg-meta">10:45 AM <i class="fa-solid fa-check-double blue-tick"></i></div>
-                    </div>
+                    <!-- Dynamic messages will append here -->
                 </div>
 
                 <!-- Attachment Popups -->
@@ -256,6 +229,7 @@
             document.getElementById('messageInput').value += emoji;
         }
     </script>
+    <!-- Core Application Logic -->
     <script src="/static/js/main.js"></script>
 </body>
 </html>
