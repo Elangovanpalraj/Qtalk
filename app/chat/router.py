@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query, File, UploadFile
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from sqlalchemy import or_, and_, ilike
+from sqlalchemy import or_, and_
 from PIL import Image
 
 # Firebase Admin SDK for Push Notifications (Optional import check)
