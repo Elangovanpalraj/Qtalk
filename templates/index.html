@@ -2,74 +2,95 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantum Nexus - Modern Chat</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
+    <title>Qtalk Web</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; background: #ece5dd; }
+        #sidebar { width: 300px; background: #ffffff; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
+        #chat-area { flex-grow: 1; display: flex; flex-direction: column; }
+        #messages { flex-grow: 1; padding: 20px; overflow-y: auto; }
+        #input-area { display: flex; padding: 10px; background: #f0f0f0; }
+        #input-area input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        #input-area button { padding: 10px 15px; margin-left: 5px; background: #075e54; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .user-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; }
+        .user-item:hover { background: #f5f5f5; }
+        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; max-width: 60%; width: fit-content; }
+        .sent { background: #dcf8c6; margin-left: auto; }
+        .received { background: #ffffff; }
+    </style>
 </head>
-<body class="dark-theme">
-    <div class="app-container">
-        <!-- Login Modal -->
-        <div id="login-modal" class="modal">
-            <div class="modal-content">
-                <h2><i class="fa-solid fa-atom"></i> Quantum Nexus</h2>
-                <input type="text" id="username-input" placeholder="உங்கள் பெயரை உள்ளிடவும்..." />
-                <button onclick="login()">Sign In</button>
-            </div>
-        </div>
-        <!-- Header Bar -->
-        <header class="navbar">
-            <div class="brand">
-                <span class="logo-qwatch">Qwatch</span>
-                <span class="divider">|</span>
-                <span class="logo-quantum"><i class="fa-solid fa-atom"></i> Quantum Nexus</span>
-            </div>
-            <div class="nav-controls">
-                <button id="theme-toggle" onclick="toggleTheme()"><i class="fa-solid fa-moon"></i></button>
-                <span id="user-display"></span>
-            </div>
-        </header>
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Sidebar -->
-            <aside class="sidebar">
-                <div class="search-box">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="search-input" placeholder="Search contact..." onkeyup="filterContacts()">
-                </div>
-                <div class="contact-list" id="contact-list"></div>
-            </aside>
-            <!-- Chat Panel -->
-            <main class="chat-area">
-                <div class="chat-header">
-                    <div class="chat-header-info">
-                        <h3 id="active-user-name">Select a contact to start chatting</h3>
-                        <span id="active-user-status" class="status-indicator"></span>
-                    </div>
-                    <div class="msg-search-box">
-                        <input type="text" id="msg-search-input" placeholder="Search message..." onkeyup="searchMessages()">
-                    </div>
-                </div>
-                <div class="messages-container" id="messages-container"></div>
-                <div id="typing-indicator" class="typing-indicator" style="display:none;">typing...</div>
-                <div id="emoji-picker-container" class="emoji-picker-popup" style="display: none;">
-                    <emoji-picker></emoji-picker>
-                </div>
-                <div class="chat-input-area">
-                    <button class="icon-btn" onclick="toggleEmojiPicker()"><i class="fa-regular fa-face-smile"></i></button>
-                    <label for="file-upload" class="icon-btn"><i class="fa-solid fa-paperclip"></i></label>
-                    <input type="file" id="file-upload" style="display:none;" onchange="uploadFile()">
-                    
-                    <input type="text" id="message-input" placeholder="Type a message..." onkeydown="handleKeyPress(event)" oninput="sendTypingStatus()">
-                    
-                    <button class="icon-btn" id="record-btn" onclick="toggleRecording()"><i class="fa-solid fa-microphone"></i></button>
-                    <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-            </main>
-        </div>
+<body>
+
+<div id="sidebar">
+    <div style="padding:15px; background:#075e54; color:white;"><strong>Qtalk Contacts</strong></div>
+    <div id="contacts-list"></div>
+</div>
+
+<div id="chat-area">
+    <div id="messages"></div>
+    <div id="input-area">
+        <input type="text" id="message-input" placeholder="Type a message...">
+        <button onclick="sendMessage()">Send</button>
     </div>
-    <audio id="notif-sound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
-    <script src="/static/js/main.js"></script>
+</div>
+
+<script>
+    let activeUserId = 1; // Simulated Auth User ID
+    let currentPeerId = null;
+    let ws = null;
+
+    function initWebSocket() {
+        ws = new WebSocket(`ws://${location.host}/api/chat/ws/${activeUserId}`);
+        ws.onmessage = function(event) {
+            let msg = JSON.parse(event.data);
+            if (msg.sender_id === currentPeerId || msg.sender_id === activeUserId) {
+                appendMessage(msg);
+            }
+        };
+    }
+
+    async function loadContacts() {
+        let res = await fetch(`/api/contacts/?current_user_id=${activeUserId}`);
+        let users = await res.json();
+        let container = document.getElementById('contacts-list');
+        container.innerHTML = '';
+        users.forEach(u => {
+            let div = document.createElement('div');
+            div.className = 'user-item';
+            div.innerText = u.username;
+            div.onclick = () => selectContact(u.id);
+            container.appendChild(div);
+        });
+    }
+
+    async function selectContact(peerId) {
+        currentPeerId = peerId;
+        document.getElementById('messages').innerHTML = '';
+        let res = await fetch(`/api/chat/history/${activeUserId}/${peerId}`);
+        let history = await res.json();
+        history.forEach(appendMessage);
+    }
+
+    function appendMessage(msg) {
+        let div = document.createElement('div');
+        div.className = 'msg ' + (msg.sender_id === activeUserId ? 'sent' : 'received');
+        div.innerText = msg.content;
+        document.getElementById('messages').appendChild(div);
+    }
+
+    function sendMessage() {
+        let input = document.getElementById('message-input');
+        if (input.value && currentPeerId) {
+            ws.send(JSON.stringify({
+                receiver_id: currentPeerId,
+                content: input.value
+            }));
+            input.value = '';
+        }
+    }
+
+    initWebSocket();
+    loadContacts();
+</script>
+
 </body>
 </html>
