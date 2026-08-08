@@ -12,30 +12,30 @@ from app.status.router import router as status_router
 from app.calls.router import router as calls_router
 from app.media.router import router as media_router
 
-# Initialize Tables
+# Create Database Tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Qtalk")
 
-# Resolve Absolute Paths
+# Absolute Paths Resolution
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 UPLOADS_DIR = BASE_DIR / "uploads"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
-# Auto-create missing directories on boot up to prevent 500 runtime errors
+# Auto-create directories on boot to prevent missing folder errors
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# Mount Static & Media Directories safely
+# Mount Static & Uploads Folders
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
-# Configure Templates using Absolute Path
+# Configure Jinja2 Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Register Feature Modules
+# Include Feature Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
 app.include_router(contacts_router, prefix="/api/contacts", tags=["Contacts"])
@@ -45,7 +45,8 @@ app.include_router(media_router, prefix="/api/media", tags=["Media"])
 
 @app.get("/")
 def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Updated signature for FastAPI / Starlette compliance
+    return templates.TemplateResponse(request=request, name="index.html")
 
 if __name__ == "__main__":
     import uvicorn
