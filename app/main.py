@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -15,10 +17,23 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Qtalk")
 
-# Static & Media Mounts
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-templates = Jinja2Templates(directory="templates")
+# Resolve Absolute Paths
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_DIR = BASE_DIR / "static"
+UPLOADS_DIR = BASE_DIR / "uploads"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+# Auto-create missing directories on boot up to prevent 500 runtime errors
+os.makedirs(STATIC_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
+
+# Mount Static & Media Directories safely
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+# Configure Templates using Absolute Path
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Register Feature Modules
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
