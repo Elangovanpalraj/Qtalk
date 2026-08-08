@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -39,9 +39,9 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     receiver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # None for group chats
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)      # None for direct chats
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)     # None for direct chats
     
-    # Message Types: text, image, video, voice, document, location, contact
+    # Message Types: text, image, video, voice, document, location, contact, link
     msg_type = Column(String, default="text") 
     content = Column(Text, nullable=True)
     media_url = Column(String, nullable=True)
@@ -69,6 +69,7 @@ class Message(Base):
     group = relationship("Group", back_populates="messages")
     reply_to = relationship("Message", remote_side=[id], backref="replies")
     reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
+    receipts = relationship("MessageReceipt", back_populates="message", cascade="all, delete-orphan")
 
 
 class MessageReaction(Base):
@@ -82,4 +83,30 @@ class MessageReaction(Base):
 
     # Relationships
     message = relationship("Message", back_populates="reactions")
+    user = relationship("User")
+
+
+class MessageReceipt(Base):
+    __tablename__ = "message_receipts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), default="delivered")  # delivered, read
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    message = relationship("Message", back_populates="receipts")
+    user = relationship("User")
+
+
+class UserStatus(Base):
+    __tablename__ = "user_statuses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    media_url = Column(String(500), nullable=True)
+    caption = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(hours=24))
+
     user = relationship("User")
