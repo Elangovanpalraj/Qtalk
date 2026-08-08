@@ -3,6 +3,7 @@ import uuid
 from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 # Database Base & Session Setup
@@ -43,6 +44,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ------------------------------------------------------------------
 # 🟢 5. ENSURE REQUIRED DIRECTORIES EXIST
@@ -78,7 +88,7 @@ app.include_router(calls_router)
 @app.post("/upload", tags=["Media"])
 async def upload_file(file: UploadFile = File(...)):
     """
-    ப படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
+    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
     """
     ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
     filename = f"{uuid.uuid4().hex}.{ext}"
