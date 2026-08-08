@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timedelta
@@ -7,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from sqlalchemy import or_, and_, ilike
+from PIL import Image
 
 # Firebase Admin SDK for Push Notifications (Optional import check)
 try:
@@ -18,7 +20,8 @@ from app.database import get_db
 from app.auth.models import User
 from app.chat.models import (
     Message, MessageReaction, Group, GroupMember, 
-    MessageReceipt, UserStatus, UserPresence, ChatBackup
+    MessageReceipt, UserStatus, UserPresence, ChatBackup,
+    GroupCallSession, MediaAsset
 )
 from app.chat.manager import manager
 
@@ -59,14 +62,23 @@ class DisappearingConfigSchema(BaseModel):
     duration_seconds: int  # e.g., 86400 for 24 hours, 0 to disable
 
 
+class GroupCallSchema(BaseModel):
+    group_id: int
+    host_user_id: int
+    call_type: str = "video"
+
+
+class AnnouncementChannelSchema(BaseModel):
+    name: str
+    admin_id: int
+    is_announcement: bool = True
+
+
 # ------------------------------------------------------------------
-# 🟢 2. FETCH CHAT HISTORY API (Excludes Expired Disappearing Messages)
+# 🟢 2. FETCH CHAT HISTORY API
 # ------------------------------------------------------------------
 @router.get("/messages/{user_id}/{other_id}")
 def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db)):
-    """
-    Iruvarukku idaiyeana chat history-ai database-il irunthu eduthu tharum API.
-    """
     now = datetime.utcnow()
     messages = db.query(Message).filter(
         or_(
@@ -81,17 +93,15 @@ def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db))
 
 
 # ------------------------------------------------------------------
-# 🟢 3. VOICE NOTE UPLOAD ENDPOINT (Audio Recording Engine)
+# 🟢 3. VOICE NOTE UPLOAD ENDPOINT
 # ------------------------------------------------------------------
 @router.post("/upload/voice", tags=["Media Handling"])
 async def upload_voice_note(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    Frontend-il record seiyum voice memo audio file-ah (webm/mp3) server-il save seiyum.
-    """
     try:
         file_ext = file.filename.split(".")[-1] if "." in file.filename else "webm"
         filename = f"voice_{uuid.uuid4()}.{file_ext}"
-        file_path = f"static/voices/{filename}"
+        os.makedirs("app/static/voices", exist_ok=True)
+        file_path = f"app/static/voices/{filename}"
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -103,7 +113,53 @@ async def upload_voice_note(file: UploadFile = File(...), db: Session = Depends(
 
 
 # ------------------------------------------------------------------
-# 🟢 4. ADVANCED FEATURES: SEARCH, PINNING, GALLERY, DISAPPEARING, PRESENCE & BACKUP
+# 🟢 4. MEDIA COMPRESSION ENGINE
+# ------------------------------------------------------------------
+@router.post("/upload/media/compress", tags=["Media Pipeline"])
+async def upload_and_compress_media(file: UploadFile = File(...), user_id: int = Query(...), db: Session = Depends(get_db)):
+    try:
+        file_ext = file.filename.split(".")[-1].lower() if "." in file.filename else "jpg"
+        filename = f"media_{uuid.uuid4()}.{file_ext}"
+        os.makedirs("app/static", exist_ok=True)
+        original_path = f"app/static/temp_{filename}"
+        compressed_path = f"app/static/compressed_{filename}"
+        
+        with open(original_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        file_size = os.path.getsize(original_path)
+        
+        if file_ext in ["jpg", "jpeg", "png"]:
+            img = Image.open(original_path)
+            img.save(compressed_path, optimize=True, quality=60)
+            os.remove(original_path)
+        else:
+            os.rename(original_path, compressed_path)
+
+        compressed_url = f"/static/compressed_{filename}"
+
+        media_record = MediaAsset(
+            uploader_id=user_id,
+            original_filename=file.filename,
+            compressed_url=compressed_url,
+            file_size_bytes=file_size
+        )
+        db.add(media_record)
+        db.commit()
+        db.refresh(media_record)
+
+        return {
+            "success": True, 
+            "message": "Media compressed successfully", 
+            "compressed_url": compressed_url,
+            "saved_bytes": file_size
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------------------------------------------------
+# 🟢 5. ADVANCED FEATURES: SEARCH, PINNING, GALLERY, PRESENCE & BACKUP
 # ------------------------------------------------------------------
 @router.get("/messages/search/{user_id}/{other_id}")
 def search_chat_messages(
@@ -112,9 +168,6 @@ def search_chat_messages(
     query: str = Query(..., min_length=1), 
     db: Session = Depends(get_db)
 ):
-    """
-    Keywords-ai vachu chat history-ai search seiyum API.
-    """
     now = datetime.utcnow()
     messages = db.query(Message).filter(
         or_(
@@ -131,9 +184,6 @@ def search_chat_messages(
 
 @router.put("/message/pin/{message_id}", tags=["Chat Actions"])
 def pin_unpin_message(message_id: int, data: PinMessageSchema, db: Session = Depends(get_db)):
-    """
-    Oru message-ah pin seiyvatharku allathu unpin seiyvatharku.
-    """
     msg = db.query(Message).filter(Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -147,9 +197,6 @@ def pin_unpin_message(message_id: int, data: PinMessageSchema, db: Session = Dep
 
 @router.get("/messages/pinned/{user_id}/{other_id}")
 def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_db)):
-    """
-    Iruvarukku idaiyeana pinned messages-ai mattum eduthu tharum.
-    """
     pinned_msgs = db.query(Message).filter(
         or_(
             and_(Message.sender_id == user_id, Message.receiver_id == other_id),
@@ -164,9 +211,6 @@ def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_d
 
 @router.get("/message/receipts/{message_id}", tags=["Group Read Receipts"])
 def get_message_receipts(message_id: int, db: Session = Depends(get_db)):
-    """
-    Oru group message-ah yaru-yaru deliver aagivittathu matrum read seithurukanga-nu check seiyum.
-    """
     receipts = db.query(MessageReceipt).filter(MessageReceipt.message_id == message_id).all()
     return {"success": True, "receipts": receipts}
 
@@ -178,9 +222,6 @@ def get_shared_media(
     media_type: str = Query("image", description="image, video, document, link, voice"), 
     db: Session = Depends(get_db)
 ):
-    """
-    Private chat-il anuppina media files illati links-ah filter panni eduthu tharum.
-    """
     query_filter = Message.msg_type == media_type
     if media_type == "link":
         query_filter = Message.content.ilike("%http%")
@@ -203,9 +244,6 @@ def get_group_shared_media(
     media_type: str = Query("image"), 
     db: Session = Depends(get_db)
 ):
-    """
-    Group-il anuppina media files illati links-ah filter seiyum.
-    """
     query_filter = Message.msg_type == media_type
     if media_type == "link":
         query_filter = Message.content.ilike("%http%")
@@ -221,9 +259,6 @@ def get_group_shared_media(
 
 @router.post("/status/create", tags=["Stories"])
 def create_user_status(data: StatusCreateSchema, db: Session = Depends(get_db)):
-    """
-    User oru pudhiya 24-hour status/story-ah post seiyvatharku.
-    """
     new_status = UserStatus(
         user_id=data.user_id,
         media_url=data.media_url,
@@ -237,29 +272,18 @@ def create_user_status(data: StatusCreateSchema, db: Session = Depends(get_db)):
 
 @router.get("/statuses/active", tags=["Stories"])
 def get_active_statuses(db: Session = Depends(get_db)):
-    """
-    Innum 24 hours expiry aagatha active user statuses-ai fetch seiyum.
-    """
     now = datetime.utcnow()
     active_statuses = db.query(UserStatus).filter(UserStatus.expires_at > now).order_by(UserStatus.created_at.desc()).all()
     return {"success": True, "statuses": active_statuses}
 
 
-# --- NEW FEATURE 1: DISAPPEARING MESSAGES CONFIG API ---
 @router.post("/chat/disappearing/{user_id}/{other_id}", tags=["Disappearing Messages"])
 def set_disappearing_timer(user_id: int, other_id: int, data: DisappearingConfigSchema, db: Session = Depends(get_db)):
-    """
-    Chat-kku disappearing messages timer-ah set seiyum API.
-    """
     return {"success": True, "message": f"Disappearing timer set to {data.duration_seconds} seconds for chat"}
 
 
-# --- NEW FEATURE 2: USER PRESENCE & LAST SEEN TRACKING API ---
 @router.get("/user/presence/{target_user_id}", tags=["User Presence"])
 def get_user_presence(target_user_id: int, db: Session = Depends(get_db)):
-    """
-    Oru user-oda online status matrum 'Last Seen' nerathai eduthu tharum.
-    """
     presence = db.query(UserPresence).filter(UserPresence.user_id == target_user_id).first()
     if not presence:
         return {"success": True, "is_online": False, "last_seen": None}
@@ -271,12 +295,8 @@ def get_user_presence(target_user_id: int, db: Session = Depends(get_db)):
     }
 
 
-# --- NEW FEATURE 3: CHAT BACKUP & RESTORE APIS ---
 @router.post("/chat/backup/{user_id}", tags=["Backup & Restore"])
 def create_chat_backup(user_id: int, db: Session = Depends(get_db)):
-    """
-    User-oda all messages-ah JSON format-il convert panni database/cloud-il backup edukkum.
-    """
     messages = db.query(Message).filter(
         or_(Message.sender_id == user_id, Message.receiver_id == user_id)
     ).all()
@@ -307,9 +327,6 @@ def create_chat_backup(user_id: int, db: Session = Depends(get_db)):
 
 @router.get("/chat/restore/{user_id}", tags=["Backup & Restore"])
 def restore_chat_backup(user_id: int, db: Session = Depends(get_db)):
-    """
-    User device change seiyum pothu cloud-il irunthu chat history-ai restore seiyum.
-    """
     backup = db.query(ChatBackup).filter(ChatBackup.user_id == user_id).first()
     if not backup:
         raise HTTPException(status_code=404, detail="No backup found for this user")
@@ -319,17 +336,123 @@ def restore_chat_backup(user_id: int, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------
-# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE, Presence & Disappearing Logic)
+# 🟢 6. GROUP & ANNOUNCEMENT MANAGEMENT
+# ------------------------------------------------------------------
+@router.post("/group/create", tags=["Groups"])
+def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
+    if len(data.member_ids) > 1024:
+        raise HTTPException(status_code=400, detail="Group capacity exceeded (Max 1024 members)")
+
+    new_group = Group(name=data.name, created_by=data.admin_id)
+    db.add(new_group)
+    db.commit()
+    db.refresh(new_group)
+
+    all_members = list(set(data.member_ids + [data.admin_id]))
+    for m_id in all_members:
+        is_admin = (m_id == data.admin_id)
+        db.add(GroupMember(group_id=new_group.id, user_id=m_id, is_admin=is_admin))
+    
+    db.commit()
+    return {"success": True, "group_id": new_group.id, "message": f"Group '{data.name}' created successfully"}
+
+
+@router.post("/group/announcement/create", tags=["Announcement Channels"])
+def create_announcement_channel(data: AnnouncementChannelSchema, db: Session = Depends(get_db)):
+    new_channel = Group(
+        name=data.name,
+        created_by=data.admin_id,
+        is_announcement_channel=data.is_announcement
+    )
+    db.add(new_channel)
+    db.commit()
+    db.refresh(new_channel)
+
+    db.add(GroupMember(group_id=new_channel.id, user_id=data.admin_id, is_admin=True))
+    db.commit()
+
+    return {"success": True, "channel_id": new_channel.id, "message": "Announcement channel created successfully"}
+
+
+@router.post("/group/call/start", tags=["Group Calls"])
+def start_group_call(data: GroupCallSchema, db: Session = Depends(get_db)):
+    call_session = GroupCallSession(
+        group_id=data.group_id,
+        host_user_id=data.host_user_id,
+        call_type=data.call_type,
+        is_active=True
+    )
+    db.add(call_session)
+    db.commit()
+    db.refresh(call_session)
+
+    return {"success": True, "call_session_id": call_session.id, "message": "Group call started"}
+
+
+@router.post("/group/call/end/{call_id}", tags=["Group Calls"])
+def end_group_call(call_id: int, db: Session = Depends(get_db)):
+    call = db.query(GroupCallSession).filter(GroupCallSession.id == call_id).first()
+    if not call:
+        raise HTTPException(status_code=404, detail="Call session not found")
+
+    call.is_active = False
+    db.commit()
+    return {"success": True, "message": "Group call ended successfully"}
+
+
+# ------------------------------------------------------------------
+# 🟢 7. MESSAGE ACTIONS (Edit, Delete)
+# ------------------------------------------------------------------
+@router.put("/message/edit/{message_id}", tags=["Chat Actions"])
+def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends(get_db)):
+    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == data.user_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found or permission denied")
+
+    if datetime.utcnow() - msg.created_at > timedelta(minutes=15):
+        raise HTTPException(status_code=400, detail="Edit window expired (15 mins limit)")
+
+    msg.content = data.new_content
+    msg.is_edited = True
+    db.commit()
+    return {"success": True, "status": "edited", "message_id": message_id, "new_content": data.new_content}
+
+
+@router.delete("/message/delete_everyone/{message_id}", tags=["Chat Actions"])
+def delete_message_everyone(message_id: int, user_id: int, db: Session = Depends(get_db)):
+    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == user_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found or permission denied")
+
+    msg.is_deleted_everyone = True
+    msg.content = "This message was deleted"
+    msg.media_url = None
+    db.commit()
+    return {"success": True, "status": "deleted_everyone", "message_id": message_id}
+
+
+@router.post("/message/delete_for_me/{message_id}", tags=["Chat Actions"])
+def delete_message_for_me(message_id: int, user_id: int, db: Session = Depends(get_db)):
+    msg = db.query(Message).filter(Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    deleted_users = [u.strip() for u in (msg.deleted_for_users or "").split(",") if u.strip()]
+    if str(user_id) not in deleted_users:
+        deleted_users.append(str(user_id))
+        msg.deleted_for_users = ",".join(deleted_users)
+        db.commit()
+
+    return {"success": True, "status": "deleted_for_me", "message_id": message_id}
+
+
+# ------------------------------------------------------------------
+# 🟢 8. WEBSOCKET REAL-TIME ENDPOINT
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
-    """
-    Real-time WebSocket endpoint: Handles direct messages, group chats,
-    typing indicators, read receipts, reactions, presence tracking, and E2EE payloads.
-    """
     await manager.connect(user_id, websocket)
 
-    # Update User Presence to Online
     presence = db.query(UserPresence).filter(UserPresence.user_id == user_id).first()
     if presence:
         presence.is_online = True
@@ -344,7 +467,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
             data = json.loads(raw_data)
             event = data.get("event") or data.get("type")
 
-            # A. SEND MESSAGE (Direct, Group, Disappearing & E2EE Support)
             if event in ["send_message", "message"]:
                 receiver_id = data.get("receiver_id")
                 group_id = data.get("group_id")
@@ -409,37 +531,33 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                                 fcm_msg = messaging.Message(
                                     notification=messaging.Notification(
                                         title="New Message",
-                                        body="You received a new message" if new_msg.msg_type != "voice" else "You received a voice note",
+                                        body="You received a new message",
                                     ),
                                     data={"sender_id": str(user_id), "chat_type": "direct"},
                                     token=receiver_user.fcm_token,
                                 )
                                 messaging.send(fcm_msg)
                             except Exception as fcm_err:
-                                print(f"FCM Notification Error: {fcm_err}")
+                                print(f"FCM Error: {fcm_err}")
 
                     await manager.send_personal_message(payload, user_id)
 
-            # B. TYPING INDICATOR
             elif event == "typing":
                 target_id = data.get("receiver_id")
                 is_typing = data.get("is_typing", True)
                 if target_id:
                     await manager.send_typing_indicator(user_id, target_id, is_typing)
 
-            # C. MARK AS READ
             elif event == "mark_read":
                 msg_ids = data.get("message_ids", [])
                 if msg_ids:
                     db.query(Message).filter(Message.id.in_(msg_ids)).update(
                         {"status": "read"}, synchronize_session=False
                     )
-                    
                     db.query(MessageReceipt).filter(
                         MessageReceipt.message_id.in_(msg_ids),
                         MessageReceipt.user_id == user_id
                     ).update({"status": "read"}, synchronize_session=False)
-                    
                     db.commit()
 
                     sender_id = data.get("sender_id")
@@ -449,11 +567,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                             sender_id
                         )
 
-            # D. EMOJI REACTIONS
             elif event == "reaction":
                 msg_id = data.get("message_id")
                 emoji = data.get("emoji")
-
                 if msg_id and emoji:
                     react = MessageReaction(message_id=msg_id, user_id=user_id, emoji=emoji)
                     db.add(react)
@@ -465,12 +581,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                         "user_id": user_id,
                         "emoji": emoji
                     }
-
                     target_id = data.get("receiver_id")
                     if target_id:
                         await manager.send_personal_message(react_payload, target_id)
 
-            # E. WEBRTC CALL SIGNALING
             elif event in ["call_offer", "call_answer", "ice_candidate", "end_call"]:
                 target_id = data.get("target_id")
                 if target_id:
@@ -479,77 +593,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
     except WebSocketDisconnect:
         manager.disconnect(user_id)
-        # Update User Presence to Offline and record Last Seen
         presence = db.query(UserPresence).filter(UserPresence.user_id == user_id).first()
         if presence:
             presence.is_online = False
             presence.last_seen = datetime.utcnow()
             db.commit()
-
-
-# ------------------------------------------------------------------
-# 🟢 6. GROUP MANAGEMENT ENDPOINTS
-# ------------------------------------------------------------------
-@router.post("/group/create", tags=["Groups"])
-def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
-    if len(data.member_ids) > 1024:
-        raise HTTPException(status_code=400, detail="Group capacity exceeded (Max 1024 members)")
-
-    new_group = Group(name=data.name, created_by=data.admin_id)
-    db.add(new_group)
-    db.commit()
-    db.refresh(new_group)
-
-    all_members = list(set(data.member_ids + [data.admin_id]))
-    for m_id in all_members:
-        is_admin = (m_id == data.admin_id)
-        db.add(GroupMember(group_id=new_group.id, user_id=m_id, is_admin=is_admin))
-    
-    db.commit()
-    return {"success": True, "group_id": new_group.id, "message": f"Group '{data.name}' created successfully"}
-
-
-# ------------------------------------------------------------------
-# 🟢 7. MESSAGE ACTIONS (Edit, Delete, etc.)
-# ------------------------------------------------------------------
-@router.put("/message/edit/{message_id}", tags=["Chat Actions"])
-def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends(get_db)):
-    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == data.user_id).first()
-    if not msg:
-        raise HTTPException(status_code=404, detail="Message not found or permission denied")
-
-    if datetime.utcnow() - msg.created_at > timedelta(minutes=15):
-        raise HTTPException(status_code=400, detail="Edit window expired (15 mins limit)")
-
-    msg.content = data.new_content
-    msg.is_edited = True
-    db.commit()
-    return {"success": True, "status": "edited", "message_id": message_id, "new_content": data.new_content}
-
-
-@router.delete("/message/delete_everyone/{message_id}", tags=["Chat Actions"])
-def delete_message_everyone(message_id: int, user_id: int, db: Session = Depends(get_db)):
-    msg = db.query(Message).filter(Message.id == message_id, Message.sender_id == user_id).first()
-    if not msg:
-        raise HTTPException(status_code=404, detail="Message not found or permission denied")
-
-    msg.is_deleted_everyone = True
-    msg.content = "This message was deleted"
-    msg.media_url = None
-    db.commit()
-    return {"success": True, "status": "deleted_everyone", "message_id": message_id}
-
-
-@router.post("/message/delete_for_me/{message_id}", tags=["Chat Actions"])
-def delete_message_for_me(message_id: int, user_id: int, db: Session = Depends(get_db)):
-    msg = db.query(Message).filter(Message.id == message_id).first()
-    if not msg:
-        raise HTTPException(status_code=404, detail="Message not found")
-
-    deleted_users = [u.strip() for u in (msg.deleted_for_users or "").split(",") if u.strip()]
-    if str(user_id) not in deleted_users:
-        deleted_users.append(str(user_id))
-        msg.deleted_for_users = ",".join(deleted_users)
-        db.commit()
-
-    return {"success": True, "status": "deleted_for_me", "message_id": message_id}
