@@ -1,128 +1,55 @@
-import random
-from fastapi import APIRouter, HTTPException, Depends, status
-from typing import Dict
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from passlib.context import CryptContext
+from jose import jwt, JWTError
 
-from .schemas import (
-    SendOTPRequest, 
-    VerifyOTPRequest, 
-    GenericResponse, 
-    TokenResponse, 
-    UserProfileResponse, 
-    UpdateProfileRequest
-)
+from app.database import get_db
+from app.models import User
+from app.config import settings
 
-router = APIRouter(
-    prefix="/auth",
-    tags=["Authentication & User Profile"]
-)
+router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# In-memory database mock (Connect your SQLAlchemy Session in production)
-MOCK_OTP_DB: Dict[str, str] = {}
-MOCK_USERS_DB: Dict[str, dict] = {}
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
 
+class UserLogin(BaseModel):
+    username: str
+    password: str
 
-def generate_mock_jwt(phone: str, user_id: int) -> str:
-    """Generate a dummy JWT token string for authentication."""
-    return f"qtalk_jwt_token_{user_id}_{phone.replace('+', '')}"
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
 
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
-@router.post("/send-otp", response_model=GenericResponse)
-async def send_otp(payload: SendOTPRequest):
-    """
-    Generate and send a 6-digit OTP to the user's phone number.
-    """
-    phone = payload.phone.strip()
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+@router.post("/register")
+def register(user: UserRegister, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.username == user.username).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
     
-    if len(phone) < 10:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Invalid phone number format"
-        )
+    hashed_pwd = get_password_hash(user.password)
+    new_user = User(username=user.username, email=user.email, hashed_password=hashed_pwd)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": "User created successfully", "username": new_user.username}
 
-    # Generate fixed/random 6-digit OTP (Static '123456' for easy testing)
-    otp_code = "123456"  # Or use: str(random.randint(100000, 999999))
-    MOCK_OTP_DB[phone] = otp_code
-
-    # Here you can integrate SMS service like Twilio / Fast2SMS
-    return GenericResponse(
-        success=True, 
-        message=f"OTP sent successfully to {phone} (Test OTP: {otp_code})"
-    )
-
-
-@router.post("/verify-otp", response_model=TokenResponse)
-async def verify_otp(payload: VerifyOTPRequest):
-    """
-    Verify the 6-digit OTP and return an Access Token.
-    """
-    phone = payload.phone.strip()
-    user_otp = payload.otp.strip()
-
-    stored_otp = MOCK_OTP_DB.get(phone)
+@router.post("/login")
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid username or password")
     
-    if not stored_otp or stored_otp != user_otp:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Invalid or expired OTP"
-        )
-
-    # Create or fetch user
-    if phone not in MOCK_USERS_DB:
-        user_id = len(MOCK_USERS_DB) + 1
-        MOCK_USERS_DB[phone] = {
-            "id": user_id,
-            "phone": phone,
-            "name": "User " + str(user_id),
-            "about": "Hey there! I am using Qtalk.",
-            "avatar_url": f"https://ui-avatars.com/api/?name=User+{user_id}",
-            "is_active": True,
-            "created_at": "2026-08-07T10:00:00"
-        }
-
-    user = MOCK_USERS_DB[phone]
-    access_token = generate_mock_jwt(phone, user["id"])
-    
-    # Clear OTP after successful login
-    del MOCK_OTP_DB[phone]
-
-    return TokenResponse(
-        success=True,
-        access_token=access_token,
-        token_type="bearer",
-        user_id=user["id"]
-    )
-
-
-@router.get("/me", response_model=UserProfileResponse)
-async def get_current_user_profile(phone: str):
-    """
-    Fetch the currently logged in user profile details.
-    """
-    if phone not in MOCK_USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="User not found"
-        )
-    return MOCK_USERS_DB[phone]
-
-
-@router.put("/me", response_model=UserProfileResponse)
-async def update_profile(phone: str, payload: UpdateProfileRequest):
-    """
-    Update logged-in user profile details (Name, About, Avatar).
-    """
-    if phone not in MOCK_USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="User not found"
-        )
-
-    user = MOCK_USERS_DB[phone]
-    if payload.name:
-        user["name"] = payload.name
-    if payload.about:
-        user["about"] = payload.about
-    if payload.avatar_url:
-        user["avatar_url"] = payload.avatar_url
-
-    return user
+    token = create_access_token({"sub": str(db_user.id), "username": db_user.username})
+    return {"access_token": token, "token_type": "bearer", "user_id": db_user.id, "username": db_user.username}
