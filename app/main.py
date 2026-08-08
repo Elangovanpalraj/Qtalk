@@ -1,134 +1,151 @@
-import os
-import uuid
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from fastapi.templating import Jinja2Templates
+import sqlite3
+import json
+import os
+import shutil
+from datetime import datetime
 
-# Database Base & Session Setup
-from app.database import Base, engine, get_db
+app = FastAPI()
 
-# ------------------------------------------------------------------
-# 🟢 1. IMPORT ALL DATABASE MODELS (For Automatic Table Creation)
-# ------------------------------------------------------------------
-from app.auth.models import User, OTPStore
-from app.chat.models import Message, Group, GroupMember, MessageReaction
-from app.status.models import Status, StatusView
-from app.calls.models import CallLog
-
-
-# ------------------------------------------------------------------
-# 🟢 2. IMPORT ALL APP ROUTERS
-# ------------------------------------------------------------------
-from app.auth.router import router as auth_router
-from app.chat.router import router as chat_router
-from app.contacts.router import router as contacts_router
-from app.status.router import router as status_router
-from app.media.router import router as media_router
-from app.calls.router import router as calls_router
-
-
-# ------------------------------------------------------------------
-# 🟢 3. DATABASE TABLES CREATION
-# ------------------------------------------------------------------
-Base.metadata.create_all(bind=engine)
-
-
-# ------------------------------------------------------------------
-# 🟢 4. FASTAPI APP INITIALIZATION
-# ------------------------------------------------------------------
-app = FastAPI(
-    title="Qtalk - Web Application Engine",
-    description="Real-time Chat, Group Messaging, Audio/Video Calls, Status Stories, and Media Engine",
-    version="1.0.0"
-)
-
-# CORS Configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ------------------------------------------------------------------
-# 🟢 5. ENSURE REQUIRED DIRECTORIES EXIST
-# ------------------------------------------------------------------
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("static", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
-
-
-# ------------------------------------------------------------------
-# 🟢 6. MOUNT STATIC & UPLOAD FILES
-# ------------------------------------------------------------------
+UPLOAD_DIR = "static/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+templates = Jinja2Templates(directory="templates")
 
-
-# ------------------------------------------------------------------
-# 🟢 7. INCLUDE ALL MODULE ROUTERS
-# ------------------------------------------------------------------
-app.include_router(auth_router)
-app.include_router(chat_router)
-app.include_router(contacts_router)
-app.include_router(status_router)
-app.include_router(media_router)
-app.include_router(calls_router)
-
-
-# ------------------------------------------------------------------
-# 🟢 8. SYSTEM & GLOBAL ENDPOINTS
-# ------------------------------------------------------------------
-
-# A. Direct File & Media Upload API
-@app.post("/upload", tags=["Media"])
-async def upload_file(file: UploadFile = File(...)):
-    """
-    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
-    """
-    ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    filepath = os.path.join("uploads", filename)
-
-    with open(filepath, "wb") as buffer:
-        buffer.write(await file.read())
-
-    return {
-        "success": True,
-        "filename": file.filename,
-        "file_url": f"/uploads/{filename}"
-    }
-
-
-# B. System Health Check API
-@app.get("/health", tags=["System"])
-def health_check():
-    """
-    சர்வர் சரியாக இயங்குகிறதா என்பதைச் சரிபார்க்கும் API.
-    """
-    return {
-        "status": "ok",
-        "app_name": "Qtalk Engine",
-        "message": "Qtalk Backend Engine is Running Perfectly!"
-    }
-
-
-# C. Home Page Route (Frontend UI)
-@app.get("/", response_class=HTMLResponse, tags=["Frontend"])
-async def get_app():
-    """
-    Qtalk வெப் பயன்பாட்டின் முகப்புப் பக்கத்தை (index.html) காட்டும் Route.
-    """
-    template_path = os.path.join("templates", "index.html")
-    if not os.path.exists(template_path):
-        return HTMLResponse(
-            content="<h2>Qtalk Server is Running! (templates/index.html file not found)</h2>",
-            status_code=200
+def init_db():
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            receiver TEXT,
+            message TEXT,
+            file_url TEXT,
+            timestamp TEXT,
+            is_read INTEGER DEFAULT 0
         )
+    ''')
+    conn.commit()
+    conn.close()
 
-    with open(template_path, "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+init_db()
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, username: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[username] = websocket
+        await self.broadcast_status()
+
+    def disconnect(self, username: str):
+        if username in self.active_connections:
+            del self.active_connections[username]
+
+    async def send_personal_message(self, data: dict, receiver: str):
+        if receiver in self.active_connections:
+            await self.active_connections[receiver].send_text(json.dumps(data))
+
+    async def broadcast_status(self):
+        online_users = list(self.active_connections.keys())
+        data = {"type": "status_update", "online_users": online_users}
+        for ws in self.active_connections.values():
+            await ws.send_text(json.dumps(data))
+
+manager = ConnectionManager()
+
+@app.get("/", response_class=HTMLResponse)
+async def get_chat_page(request: Request):
+    return templates.TemplateResponse(request=request, name="index.html")
+
+@app.get("/messages/{user1}/{user2}")
+async def get_messages(user1: str, user2: str):
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE messages SET is_read=1 WHERE sender=? AND receiver=?", (user2, user1))
+    conn.commit()
+    
+    cursor.execute('''
+        SELECT id, sender, receiver, message, file_url, timestamp, is_read FROM messages 
+        WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?) 
+        ORDER BY id ASC
+    ''', (user1, user2, user2, user1))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    messages = [
+        {"id": r[0], "sender": r[1], "receiver": r[2], "message": r[3], "file_url": r[4], "timestamp": r[5], "is_read": r[6]} 
+        for r in rows
+    ]
+    return JSONResponse(content=messages)
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    ext = file.filename.split('.')[-1]
+    filename = f"{datetime.now().timestamp()}.{ext}"
+    file_location = f"{UPLOAD_DIR}/{filename}"
+    with open(file_location, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"file_url": f"/{file_location}"}
+
+@app.websocket("/ws/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
+    await manager.connect(username, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            msg_type = message_data.get("type", "message")
+            
+            if msg_type == "typing":
+                message_data['sender'] = username
+                await manager.send_personal_message(message_data, message_data['receiver'])
+                continue
+            if msg_type == "read_ack":
+                conn = sqlite3.connect("database.db")
+                cursor = conn.cursor()
+                cursor.execute("UPDATE messages SET is_read=1 WHERE sender=? AND receiver=?", (message_data['sender'], username))
+                conn.commit()
+                conn.close()
+                await manager.send_personal_message({"type": "read_ack", "by": username}, message_data['sender'])
+                continue
+            if msg_type == "delete_msg":
+                msg_id = message_data.get("msg_id")
+                conn = sqlite3.connect("database.db")
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM messages WHERE id=?", (msg_id,))
+                conn.commit()
+                conn.close()
+                payload = {"type": "delete_msg", "msg_id": msg_id}
+                await manager.send_personal_message(payload, message_data['receiver'])
+                await manager.send_personal_message(payload, username)
+                continue
+                
+            # Standard Message & Voice Note Handling
+            conn = sqlite3.connect("database.db")
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO messages (sender, receiver, message, file_url, timestamp, is_read) VALUES (?, ?, ?, ?, ?, 0)",
+                (username, message_data['receiver'], message_data.get('message', ''), message_data.get('file_url', ''), datetime.now().strftime("%I:%M %p"))
+            )
+            msg_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            
+            message_data['type'] = "message"
+            message_data['id'] = msg_id
+            message_data['sender'] = username
+            message_data['timestamp'] = datetime.now().strftime("%I:%M %p")
+            message_data['is_read'] = 0
+            
+            await manager.send_personal_message(message_data, message_data['receiver'])
+            await manager.send_personal_message(message_data, username)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(username)
+        await manager.broadcast_status()
