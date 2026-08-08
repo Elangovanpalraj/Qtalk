@@ -8,7 +8,7 @@ let replyMessageId = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let sharedCryptoKey = null;
-let unreadCounts = {}; // Track unread messages per user
+let unreadCounts = {};
 
 // WebRTC Global State
 let localPeerConnection = null;
@@ -103,10 +103,10 @@ async function verifyOTP() {
     if (otp !== "123456") return alert("Invalid OTP code! (Use 123456)");
 
     try {
-        await fetch("/register", {
+        await fetch("/contacts/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phone: currentUserPhone, name: "User " + currentUserPhone.slice(-4) })
+            body: JSON.stringify({ phone_number: currentUserPhone, username: "User " + currentUserPhone.slice(-4) })
         });
     } catch (err) {
         console.error("Registration error:", err);
@@ -391,7 +391,9 @@ function selectContact(phone, name) {
 async function loadContactsAndGroups() {
     try {
         const res = await fetch(`/contacts/${currentUserPhone}`);
-        const contacts = await res.json();
+        const data = await res.json();
+        const contacts = data.contacts || []; // FIXED: safely extracting contacts array
+        
         const list = document.getElementById("userList");
         if (!list) return;
         list.innerHTML = "";
@@ -404,16 +406,16 @@ async function loadContactsAndGroups() {
         contacts.forEach(c => {
             const li = document.createElement("li");
             li.className = "contact-item";
-            li.setAttribute("data-phone", c.phone);
-            li.setAttribute("data-name", c.name.toLowerCase());
+            li.setAttribute("data-phone", c.phone_number);
+            li.setAttribute("data-name", c.username.toLowerCase());
             li.innerHTML = `
-                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=00a884&color=fff"></div>
+                <div class="contact-avatar"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.username)}&background=00a884&color=fff"></div>
                 <div class="contact-info" style="width:100%;">
-                    <div class="contact-top"><span>${c.name}</span></div>
-                    <div class="contact-bottom"><span>${c.phone}</span></div>
+                    <div class="contact-top"><span>${c.username}</span></div>
+                    <div class="contact-bottom"><span>${c.phone_number}</span></div>
                 </div>
             `;
-            li.onclick = () => selectContact(c.phone, c.name);
+            li.onclick = () => selectContact(c.phone_number, c.username);
             list.appendChild(li);
         });
     } catch (err) {
