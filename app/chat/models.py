@@ -39,7 +39,7 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     receiver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # None for group chats
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)     # None for direct chats
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)      # None for direct chats
     
     # Message Types: text, image, video, voice, document, location, contact
     msg_type = Column(String, default="text") 
@@ -49,6 +49,9 @@ class Message(Base):
     # Reply & Forwarding
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     is_forwarded = Column(Boolean, default=False)
+    
+    # Advanced Features: Pinning
+    is_pinned = Column(Boolean, default=False)
     
     # Message Status: sent, delivered, read
     status = Column(String, default="sent") 
