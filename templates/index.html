@@ -2,92 +2,335 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Qtalk Web</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; background: #ece5dd; }
-        #sidebar { width: 300px; background: #ffffff; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
-        #chat-area { flex-grow: 1; display: flex; flex-direction: column; }
-        #messages { flex-grow: 1; padding: 20px; overflow-y: auto; }
-        #input-area { display: flex; padding: 10px; background: #f0f0f0; }
-        #input-area input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        #input-area button { padding: 10px 15px; margin-left: 5px; background: #075e54; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        .user-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; }
-        .user-item:hover { background: #f5f5f5; }
-        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; max-width: 60%; width: fit-content; }
-        .sent { background: #dcf8c6; margin-left: auto; }
-        .received { background: #ffffff; }
+        :root {
+            --bg-color: #ece5dd;
+            --primary: #075e54;
+            --secondary: #128c7e;
+            --sidebar-bg: #ffffff;
+            --chat-bg: #efeae2;
+            --text-color: #000000;
+        }
+
+        body.light-theme {
+            --bg-color: #f0f2f5;
+            --sidebar-bg: #ffffff;
+            --chat-bg: #e5ddd5;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; background: var(--bg-color); }
+
+        #sidebar { width: 320px; background: var(--sidebar-bg); border-right: 1px solid #d1d7db; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 15px; background: var(--primary); color: white; display: flex; justify-content: space-between; align-items: center; }
+        .search-box { padding: 10px; background: #f6f6f6; border-bottom: 1px solid #e9edef; }
+        .search-box input { width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; outline: none; }
+        #contacts-list { flex-grow: 1; overflow-y: auto; }
+        .user-item { padding: 12px 15px; border-bottom: 1px solid #f0f2f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .user-item:hover, .user-item.active { background: #f0f2f5; }
+
+        #chat-area { flex-grow: 1; display: flex; flex-direction: column; background: var(--chat-bg); }
+        .chat-header { padding: 15px; background: #f0f2f5; border-bottom: 1px solid #d1d7db; display: flex; flex-direction: column; }
+        #active-user-status { font-size: 12px; color: #667781; }
+        
+        #messages-container { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        
+        .message { padding: 8px 12px; border-radius: 8px; max-width: 65%; width: fit-content; word-wrap: break-word; font-size: 14px; position: relative; }
+        .message.sent { background: #dcf8c6; align-self: flex-end; }
+        .message.received { background: #ffffff; align-self: flex-start; }
+        .message img { max-width: 100%; border-radius: 6px; margin-top: 5px; }
+        .message audio { max-width: 100%; margin-top: 5px; }
+        
+        .msg-footer { font-size: 10px; color: #667781; text-align: right; margin-top: 4px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+        .delete-btn { cursor: pointer; color: #ef4444; margin-right: 5px; }
+
+        #input-area { display: flex; padding: 10px 15px; background: #f0f2f5; align-items: center; gap: 10px; }
+        #input-area input[type="text"] { flex-grow: 1; padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        .icon-btn { background: none; border: none; font-size: 18px; color: #54656f; cursor: pointer; padding: 5px; }
+        .send-btn { background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 50%; cursor: pointer; }
+        
+        #typing-indicator { font-size: 12px; color: var(--secondary); font-style: italic; display: none; margin-top: 2px; }
+        .dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; }
+        .dot.online { background-color: #10b981; }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
-    <div style="padding:15px; background:#075e54; color:white;"><strong>Qtalk Contacts</strong></div>
+    <div class="sidebar-header">
+        <strong>Qtalk Contacts</strong>
+        <i class="fa-solid fa-circle-half-stroke icon-btn" style="color:white;" onclick="toggleTheme()"></i>
+    </div>
+    <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search contacts..." oninput="filterContacts()">
+    </div>
     <div id="contacts-list"></div>
 </div>
 
 <div id="chat-area">
-    <div id="messages"></div>
+    <div class="chat-header">
+        <strong id="active-user-name">Select a contact to chat</strong>
+        <span id="active-user-status">Offline</span>
+        <span id="typing-indicator">typing...</span>
+    </div>
+
+    <div id="messages-container"></div>
+
     <div id="input-area">
-        <input type="text" id="message-input" placeholder="Type a message...">
-        <button onclick="sendMessage()">Send</button>
+        <input type="file" id="file-upload" style="display:none" onchange="uploadFile()">
+        <button class="icon-btn" onclick="document.getElementById('file-upload').click()"><i class="fa-solid fa-paperclip"></i></button>
+        <button class="icon-btn" id="record-btn" onclick="toggleRecording()"><i class="fa-solid fa-microphone"></i></button>
+        <input type="text" id="message-input" placeholder="Type a message..." oninput="sendTypingStatus()" onkeypress="handleKeyPress(event)">
+        <button class="send-btn" onclick="sendMessage()"><i class="fa-solid fa-paperplane"></i></button>
     </div>
 </div>
 
 <script>
-    let activeUserId = 1; // Simulated Auth User ID
-    let currentPeerId = null;
-    let ws = null;
+    let activeUserId = 1; 
+    let selectedContactId = null;
+    let selectedContactName = "";
+    let socket = null;
+    let typingTimeout = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+    let allUsers = [];
 
     function initWebSocket() {
-        ws = new WebSocket(`ws://${location.host}/api/chat/ws/${activeUserId}`);
-        ws.onmessage = function(event) {
-            let msg = JSON.parse(event.data);
-            if (msg.sender_id === currentPeerId || msg.sender_id === activeUserId) {
-                appendMessage(msg);
+        // HTTPS என்றால் wss:// என்றும், HTTP என்றால் ws:// என்றும் தானாகவே மாறும்
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/api/chat/ws/${activeUserId}`;
+        
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = function () {
+            console.log("Connected to WebSocket");
+        };
+
+        socket.onmessage = function (event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === "typing" && data.sender_id === selectedContactId) {
+                    const indicator = document.getElementById("typing-indicator");
+                    if (indicator) {
+                        indicator.style.display = data.is_typing ? "block" : "none";
+                    }
+                } 
+                else if (data.type === "delete_msg") {
+                    const el = document.getElementById(`msg-${data.msg_id}`);
+                    if (el) el.remove();
+                } 
+                else {
+                    // Standard message object
+                    if (data.sender_id === selectedContactId || data.sender_id === activeUserId) {
+                        appendMessage(data);
+                    }
+                }
+            } catch (e) {
+                console.error("WebSocket Message Error:", e);
             }
+        };
+
+        socket.onclose = function () {
+            console.log("WebSocket Closed. Reconnecting in 3s...");
+            setTimeout(initWebSocket, 3000);
         };
     }
 
     async function loadContacts() {
-        let res = await fetch(`/api/contacts/?current_user_id=${activeUserId}`);
-        let users = await res.json();
-        let container = document.getElementById('contacts-list');
-        container.innerHTML = '';
-        users.forEach(u => {
-            let div = document.createElement('div');
-            div.className = 'user-item';
-            div.innerText = u.username;
-            div.onclick = () => selectContact(u.id);
-            container.appendChild(div);
-        });
-    }
-
-    async function selectContact(peerId) {
-        currentPeerId = peerId;
-        document.getElementById('messages').innerHTML = '';
-        let res = await fetch(`/api/chat/history/${activeUserId}/${peerId}`);
-        let history = await res.json();
-        history.forEach(appendMessage);
-    }
-
-    function appendMessage(msg) {
-        let div = document.createElement('div');
-        div.className = 'msg ' + (msg.sender_id === activeUserId ? 'sent' : 'received');
-        div.innerText = msg.content;
-        document.getElementById('messages').appendChild(div);
-    }
-
-    function sendMessage() {
-        let input = document.getElementById('message-input');
-        if (input.value && currentPeerId) {
-            ws.send(JSON.stringify({
-                receiver_id: currentPeerId,
-                content: input.value
-            }));
-            input.value = '';
+        try {
+            let res = await fetch(`/api/contacts/?current_user_id=${activeUserId}`);
+            if (res.ok) {
+                allUsers = await res.json();
+                renderContacts();
+            }
+        } catch (err) {
+            console.error("Error loading contacts:", err);
         }
     }
 
+    function renderContacts() {
+        const list = document.getElementById("contacts-list");
+        const searchVal = document.getElementById("search-input").value.toLowerCase();
+        list.innerHTML = "";
+
+        allUsers
+            .filter(u => u.id !== activeUserId && u.username.toLowerCase().includes(searchVal))
+            .forEach(user => {
+                const div = document.createElement("div");
+                div.className = `user-item ${user.id === selectedContactId ? 'active' : ''}`;
+                div.onclick = () => selectContact(user.id, user.username);
+                div.innerHTML = `
+                    <span>${user.username}</span>
+                    <span class="dot online"></span>
+                `;
+                list.appendChild(div);
+            });
+    }
+
+    function filterContacts() {
+        renderContacts();
+    }
+
+    async function selectContact(peerId, username) {
+        selectedContactId = peerId;
+        selectedContactName = username;
+
+        document.getElementById("active-user-name").innerText = username;
+        document.getElementById("active-user-status").innerText = "Online";
+        document.getElementById("messages-container").innerHTML = "";
+
+        renderContacts();
+
+        try {
+            let res = await fetch(`/api/chat/history/${activeUserId}/${peerId}`);
+            if (res.ok) {
+                let history = await res.json();
+                history.forEach(appendMessage);
+            }
+        } catch (err) {
+            console.error("Fetch History Error:", err);
+        }
+    }
+
+    function appendMessage(data) {
+        const container = document.getElementById("messages-container");
+        if (!container) return;
+
+        const isSent = data.sender_id === activeUserId;
+        const div = document.createElement("div");
+        div.className = `message ${isSent ? 'sent' : 'received'}`;
+        div.id = `msg-${data.id || Date.now()}`;
+
+        let content = data.content ? `<p>${data.content}</p>` : "";
+
+        if (data.file_url) {
+            if (data.file_url.match(/\.(jpeg|jpg|gif|png)$/i)) {
+                content += `<img src="${data.file_url}" alt="image" />`;
+            } else if (data.file_url.match(/\.(webm|mp3|wav|ogg)$/i)) {
+                content += `<audio controls src="${data.file_url}"></audio>`;
+            } else {
+                content += `<a href="${data.file_url}" target="_blank" style="color:#075e54;">📎 Attached File</a>`;
+            }
+        }
+
+        let deleteBtn = isSent && data.id ? `<i class="fa-solid fa-trash delete-btn" onclick="deleteMessage(${data.id})"></i>` : "";
+        content += `<div class="msg-footer">${deleteBtn} <span>${data.timestamp || ''}</span></div>`;
+
+        div.innerHTML = content;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function sendMessage(fileUrl = "") {
+        const input = document.getElementById("message-input");
+        const msg = input ? input.value.trim() : "";
+
+        if (!selectedContactId) {
+            alert("முதலில் ஒரு Contact-ஐ கிளிக் செய்யவும்!");
+            return;
+        }
+
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            alert("Server Connection துண்டிக்கப்பட்டுள்ளது. Page-ஐ Refresh செய்யவும்.");
+            return;
+        }
+
+        if (msg || fileUrl) {
+            const payload = {
+                receiver_id: selectedContactId,
+                content: msg,
+                file_url: fileUrl
+            };
+            socket.send(JSON.stringify(payload));
+            if (input) input.value = "";
+        }
+    }
+
+    function sendTypingStatus() {
+        if (!selectedContactId || !socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: "typing", receiver_id: selectedContactId, is_typing: true }));
+        
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: "typing", receiver_id: selectedContactId, is_typing: false }));
+            }
+        }, 2000);
+    }
+
+    function deleteMessage(msgId) {
+        if (confirm("Delete message for everyone?")) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: "delete_msg",
+                    msg_id: msgId,
+                    receiver_id: selectedContactId
+                }));
+            }
+        }
+    }
+
+    async function toggleRecording() {
+        const recordBtn = document.getElementById("record-btn");
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append("file", audioBlob, "voice_note.webm");
+                    const response = await fetch("/api/media/upload", { method: "POST", body: formData });
+                    if (response.ok) {
+                        const result = await response.json();
+                        sendMessage(result.file_url);
+                    }
+                };
+                mediaRecorder.start();
+                isRecording = true;
+                if (recordBtn) recordBtn.style.color = "#ef4444";
+            } catch (err) {
+                alert("Microphone Access Denied!");
+            }
+        } else {
+            if (mediaRecorder) mediaRecorder.stop();
+            isRecording = false;
+            if (recordBtn) recordBtn.style.color = "#54656f";
+        }
+    }
+
+    async function uploadFile() {
+        const fileInput = document.getElementById("file-upload");
+        if (!fileInput || fileInput.files.length === 0) return;
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        const response = await fetch("/api/media/upload", { method: "POST", body: formData });
+        if (response.ok) {
+            const result = await response.json();
+            sendMessage(result.file_url);
+        }
+    }
+
+    function handleKeyPress(e) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            sendMessage();
+        }
+    }
+
+    function toggleTheme() {
+        document.body.classList.toggle("light-theme");
+    }
+
+    // Run on startup
     initWebSocket();
     loadContacts();
 </script>
