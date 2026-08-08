@@ -11,6 +11,7 @@ class Group(Base):
     name = Column(String, nullable=False)
     icon = Column(String, default="group_default.png")
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    is_announcement_channel = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -136,3 +137,31 @@ class ChatBackup(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+
+class GroupCallSession(Base):
+    __tablename__ = "group_call_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    host_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    call_type = Column(String(20), default="video")  # audio, video
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    group = relationship("Group")
+    host = relationship("User")
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    compressed_url = Column(String(500), nullable=False)
+    thumbnail_url = Column(String(500), nullable=True)
+    file_size_bytes = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    uploader = relationship("User")
