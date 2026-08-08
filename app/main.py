@@ -4,7 +4,6 @@ from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 
 # Database Base & Session Setup
 from app.database import Base, engine, get_db
@@ -32,7 +31,6 @@ from app.calls.router import router as calls_router
 # ------------------------------------------------------------------
 # 🟢 3. DATABASE TABLES CREATION
 # ------------------------------------------------------------------
-# அனைத்து மாடல்களுக்கான அட்டவணைகளையும் தானாக உருவாக்கும்
 Base.metadata.create_all(bind=engine)
 
 
@@ -73,35 +71,14 @@ app.include_router(calls_router)
 
 
 # ------------------------------------------------------------------
-# 🟢 8. PYDANTIC SCHEMAS (Request Validation)
-# ------------------------------------------------------------------
-class RegisterRequest(BaseModel):
-    phone: str
-    name: str = "Qtalk User"
-
-
-# ------------------------------------------------------------------
-# 🟢 9. SYSTEM & GLOBAL ENDPOINTS
+# 🟢 8. SYSTEM & GLOBAL ENDPOINTS
 # ------------------------------------------------------------------
 
-# A. User Registration / Auth Direct Route
-@app.post("/register", tags=["Auth"])
-def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
-    """
-    பயனர் OTP சரிபார்த்து லாகின் செய்யும்போது,
-    அவர் போன் நம்பரை சிஸ்டமில் Register செய்யும் Route.
-    """
-    return {
-        "status": "success",
-        "message": f"User {data.phone} ({data.name}) registered on Qtalk successfully"
-    }
-
-
-# B. Direct File & Media Upload API
+# A. Direct File & Media Upload API
 @app.post("/upload", tags=["Media"])
 async def upload_file(file: UploadFile = File(...)):
     """
-    படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
+    ப படங்கள், வீடியோக்கள் மற்றும் ஆவணங்களை Upload செய்யும் Global API.
     """
     ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
     filename = f"{uuid.uuid4().hex}.{ext}"
@@ -117,7 +94,7 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 
-# C. System Health Check API
+# B. System Health Check API
 @app.get("/health", tags=["System"])
 def health_check():
     """
@@ -130,7 +107,7 @@ def health_check():
     }
 
 
-# D. Home Page Route (Frontend UI)
+# C. Home Page Route (Frontend UI)
 @app.get("/", response_class=HTMLResponse, tags=["Frontend"])
 async def get_app():
     """
