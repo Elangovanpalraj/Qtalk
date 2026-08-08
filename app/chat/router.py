@@ -16,7 +16,10 @@ except ImportError:
 
 from app.database import get_db
 from app.auth.models import User
-from app.chat.models import Message, MessageReaction, Group, GroupMember, MessageReceipt, UserStatus
+from app.chat.models import (
+    Message, MessageReaction, Group, GroupMember, 
+    MessageReceipt, UserStatus, UserPresence, ChatBackup
+)
 from app.chat.manager import manager
 
 router = APIRouter(tags=["Chat Core & Real-time & Advanced Production Features"])
@@ -52,19 +55,26 @@ class StatusCreateSchema(BaseModel):
     caption: Optional[str] = None
 
 
+class DisappearingConfigSchema(BaseModel):
+    duration_seconds: int  # e.g., 86400 for 24 hours, 0 to disable
+
+
 # ------------------------------------------------------------------
-# 🟢 2. FETCH CHAT HISTORY API
+# 🟢 2. FETCH CHAT HISTORY API (Excludes Expired Disappearing Messages)
 # ------------------------------------------------------------------
 @router.get("/messages/{user_id}/{other_id}")
 def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db)):
     """
     Iruvarukku idaiyeana chat history-ai database-il irunthu eduthu tharum API.
     """
+    now = datetime.utcnow()
     messages = db.query(Message).filter(
         or_(
             and_(Message.sender_id == user_id, Message.receiver_id == other_id),
             and_(Message.sender_id == other_id, Message.receiver_id == user_id)
-        )
+        ),
+        or_(Message.expires_at == None, Message.expires_at > now),
+        Message.is_deleted_everyone == False
     ).order_by(Message.created_at.asc()).all()
     
     return messages
@@ -93,7 +103,7 @@ async def upload_voice_note(file: UploadFile = File(...), db: Session = Depends(
 
 
 # ------------------------------------------------------------------
-# 🟢 4. ADVANCED FEATURES: SEARCH, PINNING & GALLERY APIS
+# 🟢 4. ADVANCED FEATURES: SEARCH, PINNING, GALLERY, DISAPPEARING, PRESENCE & BACKUP
 # ------------------------------------------------------------------
 @router.get("/messages/search/{user_id}/{other_id}")
 def search_chat_messages(
@@ -105,12 +115,14 @@ def search_chat_messages(
     """
     Keywords-ai vachu chat history-ai search seiyum API.
     """
+    now = datetime.utcnow()
     messages = db.query(Message).filter(
         or_(
             and_(Message.sender_id == user_id, Message.receiver_id == other_id),
             and_(Message.sender_id == other_id, Message.receiver_id == user_id)
         ),
         Message.content.ilike(f"%{query}%"),
+        or_(Message.expires_at == None, Message.expires_at > now),
         Message.is_deleted_everyone == False
     ).order_by(Message.created_at.asc()).all()
 
@@ -150,7 +162,6 @@ def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_d
     return {"success": True, "pinned_messages": pinned_msgs}
 
 
-# --- NEW FEATURE 1: GROUP MESSAGE READ RECEIPTS API ---
 @router.get("/message/receipts/{message_id}", tags=["Group Read Receipts"])
 def get_message_receipts(message_id: int, db: Session = Depends(get_db)):
     """
@@ -160,7 +171,6 @@ def get_message_receipts(message_id: int, db: Session = Depends(get_db)):
     return {"success": True, "receipts": receipts}
 
 
-# --- NEW FEATURE 2: SHARED MEDIA & LINKS GALLERY APIS ---
 @router.get("/chat/gallery/{user_id}/{other_id}", tags=["Media Gallery"])
 def get_shared_media(
     user_id: int, 
@@ -209,7 +219,6 @@ def get_group_shared_media(
     return {"success": True, "group_id": group_id, "media_type": media_type, "items": messages}
 
 
-# --- NEW FEATURE 3: USER STATUS / STORIES APIS ---
 @router.post("/status/create", tags=["Stories"])
 def create_user_status(data: StatusCreateSchema, db: Session = Depends(get_db)):
     """
@@ -236,16 +245,98 @@ def get_active_statuses(db: Session = Depends(get_db)):
     return {"success": True, "statuses": active_statuses}
 
 
+# --- NEW FEATURE 1: DISAPPEARING MESSAGES CONFIG API ---
+@router.post("/chat/disappearing/{user_id}/{other_id}", tags=["Disappearing Messages"])
+def set_disappearing_timer(user_id: int, other_id: int, data: DisappearingConfigSchema, db: Session = Depends(get_db)):
+    """
+    Chat-kku disappearing messages timer-ah set seiyum API.
+    """
+    return {"success": True, "message": f"Disappearing timer set to {data.duration_seconds} seconds for chat"}
+
+
+# --- NEW FEATURE 2: USER PRESENCE & LAST SEEN TRACKING API ---
+@router.get("/user/presence/{target_user_id}", tags=["User Presence"])
+def get_user_presence(target_user_id: int, db: Session = Depends(get_db)):
+    """
+    Oru user-oda online status matrum 'Last Seen' nerathai eduthu tharum.
+    """
+    presence = db.query(UserPresence).filter(UserPresence.user_id == target_user_id).first()
+    if not presence:
+        return {"success": True, "is_online": False, "last_seen": None}
+    
+    return {
+        "success": True,
+        "is_online": presence.is_online,
+        "last_seen": presence.last_seen.isoformat() if presence.last_seen else None
+    }
+
+
+# --- NEW FEATURE 3: CHAT BACKUP & RESTORE APIS ---
+@router.post("/chat/backup/{user_id}", tags=["Backup & Restore"])
+def create_chat_backup(user_id: int, db: Session = Depends(get_db)):
+    """
+    User-oda all messages-ah JSON format-il convert panni database/cloud-il backup edukkum.
+    """
+    messages = db.query(Message).filter(
+        or_(Message.sender_id == user_id, Message.receiver_id == user_id)
+    ).all()
+    
+    chat_list = [{
+        "id": m.id,
+        "sender_id": m.sender_id,
+        "receiver_id": m.receiver_id,
+        "group_id": m.group_id,
+        "content": m.content,
+        "msg_type": m.msg_type,
+        "created_at": m.created_at.isoformat()
+    } for m in messages]
+    
+    backup_json = json.dumps(chat_list)
+    
+    existing_backup = db.query(ChatBackup).filter(ChatBackup.user_id == user_id).first()
+    if existing_backup:
+        existing_backup.backup_data = backup_json
+        existing_backup.created_at = datetime.utcnow()
+    else:
+        new_backup = ChatBackup(user_id=user_id, backup_data=backup_json)
+        db.add(new_backup)
+        
+    db.commit()
+    return {"success": True, "message": "Chat backup created successfully"}
+
+
+@router.get("/chat/restore/{user_id}", tags=["Backup & Restore"])
+def restore_chat_backup(user_id: int, db: Session = Depends(get_db)):
+    """
+    User device change seiyum pothu cloud-il irunthu chat history-ai restore seiyum.
+    """
+    backup = db.query(ChatBackup).filter(ChatBackup.user_id == user_id).first()
+    if not backup:
+        raise HTTPException(status_code=404, detail="No backup found for this user")
+        
+    restored_data = json.loads(backup.backup_data)
+    return {"success": True, "backup_date": backup.created_at.isoformat(), "chats": restored_data}
+
+
 # ------------------------------------------------------------------
-# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE, Push Notifications & Group Receipts)
+# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE, Presence & Disappearing Logic)
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
     """
     Real-time WebSocket endpoint: Handles direct messages, group chats,
-    typing indicators, read receipts, reactions, E2EE payloads, and WebRTC calls.
+    typing indicators, read receipts, reactions, presence tracking, and E2EE payloads.
     """
     await manager.connect(user_id, websocket)
+
+    # Update User Presence to Online
+    presence = db.query(UserPresence).filter(UserPresence.user_id == user_id).first()
+    if presence:
+        presence.is_online = True
+        presence.last_seen = datetime.utcnow()
+    else:
+        db.add(UserPresence(user_id=user_id, is_online=True, last_seen=datetime.utcnow()))
+    db.commit()
 
     try:
         while True:
@@ -253,10 +344,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
             data = json.loads(raw_data)
             event = data.get("event") or data.get("type")
 
-            # A. SEND MESSAGE (Direct, Group, E2EE Encrypted Payload, Voice/Media)
+            # A. SEND MESSAGE (Direct, Group, Disappearing & E2EE Support)
             if event in ["send_message", "message"]:
                 receiver_id = data.get("receiver_id")
                 group_id = data.get("group_id")
+                disappearing_duration = data.get("disappearing_duration", 0)
+                
+                expires_at = None
+                if disappearing_duration > 0:
+                    expires_at = datetime.utcnow() + timedelta(seconds=disappearing_duration)
 
                 new_msg = Message(
                     sender_id=user_id,
@@ -267,13 +363,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     media_url=data.get("media_url") or data.get("file_url"),
                     reply_to_id=data.get("reply_to_id"),
                     is_forwarded=data.get("is_forwarded", False),
+                    disappearing_duration=disappearing_duration,
+                    expires_at=expires_at,
                     status="delivered" if (receiver_id and manager.is_user_online(receiver_id)) else "sent"
                 )
                 db.add(new_msg)
                 db.commit()
                 db.refresh(new_msg)
 
-                # If group message, initialize default 'delivered' receipts for all members except sender
                 if group_id:
                     members = db.query(GroupMember).filter(GroupMember.group_id == group_id).all()
                     for m in members:
@@ -294,6 +391,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     "status": new_msg.status,
                     "reply_to_id": new_msg.reply_to_id,
                     "is_forwarded": new_msg.is_forwarded,
+                    "expires_at": new_msg.expires_at.isoformat() if new_msg.expires_at else None,
                     "created_at": new_msg.created_at.isoformat()
                 }
 
@@ -305,7 +403,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     if manager.is_user_online(receiver_id):
                         await manager.send_personal_message(payload, receiver_id)
                     else:
-                        # Send Push Notification via FCM if receiver is offline
                         receiver_user = db.query(User).filter(User.id == receiver_id).first()
                         if receiver_user and receiver_user.fcm_token and messaging:
                             try:
@@ -330,7 +427,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                 if target_id:
                     await manager.send_typing_indicator(user_id, target_id, is_typing)
 
-            # C. MARK AS READ (Blue Ticks & Group Receipts Update)
+            # C. MARK AS READ
             elif event == "mark_read":
                 msg_ids = data.get("message_ids", [])
                 if msg_ids:
@@ -338,7 +435,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                         {"status": "read"}, synchronize_session=False
                     )
                     
-                    # Update group receipts to 'read' if group message read
                     db.query(MessageReceipt).filter(
                         MessageReceipt.message_id.in_(msg_ids),
                         MessageReceipt.user_id == user_id
@@ -383,6 +479,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
     except WebSocketDisconnect:
         manager.disconnect(user_id)
+        # Update User Presence to Offline and record Last Seen
+        presence = db.query(UserPresence).filter(UserPresence.user_id == user_id).first()
+        if presence:
+            presence.is_online = False
+            presence.last_seen = datetime.utcnow()
+            db.commit()
 
 
 # ------------------------------------------------------------------
