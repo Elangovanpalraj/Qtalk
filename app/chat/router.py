@@ -1,16 +1,25 @@
 import json
+import shutil
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, Query, File, UploadFile
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from sqlalchemy import or_, and_, ilike
 
+# Firebase Admin SDK for Push Notifications (Optional import check)
+try:
+    from firebase_admin import messaging
+except ImportError:
+    messaging = None
+
 from app.database import get_db
+from app.auth.models import User
 from app.chat.models import Message, MessageReaction, Group, GroupMember
 from app.chat.manager import manager
 
-router = APIRouter(tags=["Chat Core & Real-time"])
+router = APIRouter(tags=["Chat Core & Real-time & Advanced Features"])
 
 
 # ------------------------------------------------------------------
@@ -38,12 +47,12 @@ class PinMessageSchema(BaseModel):
 
 
 # ------------------------------------------------------------------
-# 🟢 2. FETCH CHAT HISTORY (Fixes 404 Messages API Error)
+# 🟢 2. FETCH CHAT HISTORY API
 # ------------------------------------------------------------------
 @router.get("/messages/{user_id}/{other_id}")
 def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db)):
     """
-    iruvarukku idaiyeana chat history-ai database-il irunthu eduthu tharum API.
+    Iruvarukku idaiyeana chat history-ai database-il irunthu eduthu tharum API.
     """
     messages = db.query(Message).filter(
         or_(
@@ -56,7 +65,29 @@ def get_chat_history(user_id: int, other_id: int, db: Session = Depends(get_db))
 
 
 # ------------------------------------------------------------------
-# 🟢 3. ADVANCED FEATURES: SEARCH & PINNING APIS
+# 🟢 3. VOICE NOTE UPLOAD ENDPOINT (Audio Recording Engine)
+# ------------------------------------------------------------------
+@router.post("/upload/voice", tags=["Media Handling"])
+async def upload_voice_note(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Frontend-il record seiyum voice memo audio file-ah (webm/mp3) server-il save seiyum.
+    """
+    try:
+        file_ext = file.filename.split(".")[-1] if "." in file.filename else "webm"
+        filename = f"voice_{uuid.uuid4()}.{file_ext}"
+        file_path = f"static/voices/{filename}"
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        media_url = f"/static/voices/{filename}"
+        return {"success": True, "media_url": media_url, "msg_type": "voice"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------------------------------------------------
+# 🟢 4. ADVANCED FEATURES: SEARCH & PINNING APIS
 # ------------------------------------------------------------------
 @router.get("/messages/search/{user_id}/{other_id}")
 def search_chat_messages(
@@ -114,13 +145,13 @@ def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_d
 
 
 # ------------------------------------------------------------------
-# 🟢 4. WEBSOCKET REAL-TIME ENDPOINT
+# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE & Push Notifications Support)
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
     """
     Real-time WebSocket endpoint: Handles direct messages, group chats,
-    typing indicators, read receipts, reactions, and WebRTC call signaling.
+    typing indicators, read receipts, reactions, E2EE payloads, and WebRTC calls.
     """
     await manager.connect(user_id, websocket)
 
@@ -130,7 +161,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
             data = json.loads(raw_data)
             event = data.get("event") or data.get("type")
 
-            # A. SEND MESSAGE (Direct or Group)
+            # A. SEND MESSAGE (Direct, Group, E2EE Encrypted Payload, Voice/Media)
             if event in ["send_message", "message"]:
                 receiver_id = data.get("receiver_id")
                 group_id = data.get("group_id")
@@ -139,8 +170,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     sender_id=user_id,
                     receiver_id=receiver_id,
                     group_id=group_id,
-                    msg_type=data.get("msg_type", "text"),
-                    content=data.get("content"),
+                    msg_type=data.get("msg_type", "text"), # Can be 'text', 'voice', 'encrypted', etc.
+                    content=data.get("content"),           # Contains plaintext or client-side E2EE ciphertext
                     media_url=data.get("media_url") or data.get("file_url"),
                     reply_to_id=data.get("reply_to_id"),
                     is_forwarded=data.get("is_forwarded", False),
@@ -170,7 +201,25 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     member_ids = [m.user_id for m in members]
                     await manager.broadcast_to_users(payload, member_ids, exclude_sender_id=user_id)
                 elif receiver_id:
-                    await manager.send_personal_message(payload, receiver_id)
+                    if manager.is_user_online(receiver_id):
+                        await manager.send_personal_message(payload, receiver_id)
+                    else:
+                        # 🚀 Send Push Notification via FCM if receiver is offline
+                        receiver_user = db.query(User).filter(User.id == receiver_id).first()
+                        if receiver_user and receiver_user.fcm_token and messaging:
+                            try:
+                                fcm_msg = messaging.Message(
+                                    notification=messaging.Notification(
+                                        title="New Message",
+                                        body="You received a new message" if new_msg.msg_type != "voice" else "You received a voice note",
+                                    ),
+                                    data={"sender_id": str(user_id), "chat_type": "direct"},
+                                    token=receiver_user.fcm_token,
+                                )
+                                messaging.send(fcm_msg)
+                            except Exception as fcm_err:
+                                print(f"FCM Notification Error: {fcm_err}")
+
                     await manager.send_personal_message(payload, user_id)
 
             # B. TYPING INDICATOR
@@ -229,7 +278,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
 
 # ------------------------------------------------------------------
-# 🟢 5. GROUP MANAGEMENT ENDPOINTS
+# 🟢 6. GROUP MANAGEMENT ENDPOINTS
 # ------------------------------------------------------------------
 @router.post("/group/create", tags=["Groups"])
 def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
@@ -251,7 +300,7 @@ def create_group(data: GroupCreateSchema, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------
-# 🟢 6. MESSAGE ACTIONS (Edit, Delete, etc.)
+# 🟢 7. MESSAGE ACTIONS (Edit, Delete, etc.)
 # ------------------------------------------------------------------
 @router.put("/message/edit/{message_id}", tags=["Chat Actions"])
 def edit_message(message_id: int, data: EditMessageSchema, db: Session = Depends(get_db)):
