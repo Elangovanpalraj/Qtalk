@@ -16,10 +16,10 @@ except ImportError:
 
 from app.database import get_db
 from app.auth.models import User
-from app.chat.models import Message, MessageReaction, Group, GroupMember
+from app.chat.models import Message, MessageReaction, Group, GroupMember, MessageReceipt, UserStatus
 from app.chat.manager import manager
 
-router = APIRouter(tags=["Chat Core & Real-time & Advanced Features"])
+router = APIRouter(tags=["Chat Core & Real-time & Advanced Production Features"])
 
 
 # ------------------------------------------------------------------
@@ -44,6 +44,12 @@ class ReactionSchema(BaseModel):
 class PinMessageSchema(BaseModel):
     user_id: int
     is_pinned: bool
+
+
+class StatusCreateSchema(BaseModel):
+    user_id: int
+    media_url: Optional[str] = None
+    caption: Optional[str] = None
 
 
 # ------------------------------------------------------------------
@@ -87,7 +93,7 @@ async def upload_voice_note(file: UploadFile = File(...), db: Session = Depends(
 
 
 # ------------------------------------------------------------------
-# 🟢 4. ADVANCED FEATURES: SEARCH & PINNING APIS
+# 🟢 4. ADVANCED FEATURES: SEARCH, PINNING & GALLERY APIS
 # ------------------------------------------------------------------
 @router.get("/messages/search/{user_id}/{other_id}")
 def search_chat_messages(
@@ -144,8 +150,94 @@ def get_pinned_messages(user_id: int, other_id: int, db: Session = Depends(get_d
     return {"success": True, "pinned_messages": pinned_msgs}
 
 
+# --- NEW FEATURE 1: GROUP MESSAGE READ RECEIPTS API ---
+@router.get("/message/receipts/{message_id}", tags=["Group Read Receipts"])
+def get_message_receipts(message_id: int, db: Session = Depends(get_db)):
+    """
+    Oru group message-ah yaru-yaru deliver aagivittathu matrum read seithurukanga-nu check seiyum.
+    """
+    receipts = db.query(MessageReceipt).filter(MessageReceipt.message_id == message_id).all()
+    return {"success": True, "receipts": receipts}
+
+
+# --- NEW FEATURE 2: SHARED MEDIA & LINKS GALLERY APIS ---
+@router.get("/chat/gallery/{user_id}/{other_id}", tags=["Media Gallery"])
+def get_shared_media(
+    user_id: int, 
+    other_id: int, 
+    media_type: str = Query("image", description="image, video, document, link, voice"), 
+    db: Session = Depends(get_db)
+):
+    """
+    Private chat-il anuppina media files illati links-ah filter panni eduthu tharum.
+    """
+    query_filter = Message.msg_type == media_type
+    if media_type == "link":
+        query_filter = Message.content.ilike("%http%")
+
+    messages = db.query(Message).filter(
+        or_(
+            and_(Message.sender_id == user_id, Message.receiver_id == other_id),
+            and_(Message.sender_id == other_id, Message.receiver_id == user_id)
+        ),
+        query_filter,
+        Message.is_deleted_everyone == False
+    ).order_by(Message.created_at.desc()).all()
+
+    return {"success": True, "media_type": media_type, "items": messages}
+
+
+@router.get("/group/gallery/{group_id}", tags=["Media Gallery"])
+def get_group_shared_media(
+    group_id: int, 
+    media_type: str = Query("image"), 
+    db: Session = Depends(get_db)
+):
+    """
+    Group-il anuppina media files illati links-ah filter seiyum.
+    """
+    query_filter = Message.msg_type == media_type
+    if media_type == "link":
+        query_filter = Message.content.ilike("%http%")
+
+    messages = db.query(Message).filter(
+        Message.group_id == group_id,
+        query_filter,
+        Message.is_deleted_everyone == False
+    ).order_by(Message.created_at.desc()).all()
+
+    return {"success": True, "group_id": group_id, "media_type": media_type, "items": messages}
+
+
+# --- NEW FEATURE 3: USER STATUS / STORIES APIS ---
+@router.post("/status/create", tags=["Stories"])
+def create_user_status(data: StatusCreateSchema, db: Session = Depends(get_db)):
+    """
+    User oru pudhiya 24-hour status/story-ah post seiyvatharku.
+    """
+    new_status = UserStatus(
+        user_id=data.user_id,
+        media_url=data.media_url,
+        caption=data.caption
+    )
+    db.add(new_status)
+    db.commit()
+    db.refresh(new_status)
+    return {"success": True, "message": "Status posted successfully", "status_id": new_status.id}
+
+
+@router.get("/statuses/active", tags=["Stories"])
+def get_active_statuses(db: Session = Depends(get_db)):
+    """
+    Innum 24 hours expiry aagatha active user statuses-ai fetch seiyum.
+    """
+    now = datetime.utcnow()
+    active_statuses = db.query(UserStatus).filter(UserStatus.expires_at > now).order_by(UserStatus.created_at.desc()).all()
+    return {"success": True, "statuses": active_statuses}
+
+
 # ------------------------------------------------------------------
-# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE & Push Notifications Support)
+# 🟢 5. WEBSOCKET REAL-TIME ENDPOINT (E2EE, Push Notifications & Group Receipts)
 # ------------------------------------------------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
@@ -170,8 +262,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     sender_id=user_id,
                     receiver_id=receiver_id,
                     group_id=group_id,
-                    msg_type=data.get("msg_type", "text"), # Can be 'text', 'voice', 'encrypted', etc.
-                    content=data.get("content"),           # Contains plaintext or client-side E2EE ciphertext
+                    msg_type=data.get("msg_type", "text"),
+                    content=data.get("content"),
                     media_url=data.get("media_url") or data.get("file_url"),
                     reply_to_id=data.get("reply_to_id"),
                     is_forwarded=data.get("is_forwarded", False),
@@ -180,6 +272,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                 db.add(new_msg)
                 db.commit()
                 db.refresh(new_msg)
+
+                # If group message, initialize default 'delivered' receipts for all members except sender
+                if group_id:
+                    members = db.query(GroupMember).filter(GroupMember.group_id == group_id).all()
+                    for m in members:
+                        if m.user_id != user_id:
+                            receipt = MessageReceipt(message_id=new_msg.id, user_id=m.user_id, status="delivered")
+                            db.add(receipt)
+                    db.commit()
 
                 payload = {
                     "event": "new_message",
@@ -204,7 +305,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                     if manager.is_user_online(receiver_id):
                         await manager.send_personal_message(payload, receiver_id)
                     else:
-                        # 🚀 Send Push Notification via FCM if receiver is offline
+                        # Send Push Notification via FCM if receiver is offline
                         receiver_user = db.query(User).filter(User.id == receiver_id).first()
                         if receiver_user and receiver_user.fcm_token and messaging:
                             try:
@@ -229,13 +330,20 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
                 if target_id:
                     await manager.send_typing_indicator(user_id, target_id, is_typing)
 
-            # C. MARK AS READ (Blue Ticks)
+            # C. MARK AS READ (Blue Ticks & Group Receipts Update)
             elif event == "mark_read":
                 msg_ids = data.get("message_ids", [])
                 if msg_ids:
                     db.query(Message).filter(Message.id.in_(msg_ids)).update(
                         {"status": "read"}, synchronize_session=False
                     )
+                    
+                    # Update group receipts to 'read' if group message read
+                    db.query(MessageReceipt).filter(
+                        MessageReceipt.message_id.in_(msg_ids),
+                        MessageReceipt.user_id == user_id
+                    ).update({"status": "read"}, synchronize_session=False)
+                    
                     db.commit()
 
                     sender_id = data.get("sender_id")
