@@ -28,9 +28,6 @@ class AddContactRequest(BaseModel):
 # ------------------------------------------------------------------
 @router.post("/register")
 def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
-    """
-    பயனர் லாகின் செய்யும்போது அல்லது ஆப் ஓபன் பண்ணும்போது User-ஐ DB-ல் பதிவு செய்யும்.
-    """
     user = db.query(User).filter(User.phone_number == data.phone_number).first()
     if not user:
         username = data.username if data.username else f"User {data.phone_number[-4:]}"
@@ -57,24 +54,17 @@ def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
 # ------------------------------------------------------------------
 @router.post("/add")
 def add_contact(data: AddContactRequest, db: Session = Depends(get_db)):
-    """
-    புதிய Contact-ஐ போன் நம்பர் மூலம் ஆட் செய்யும். Target user Qtalk-ல் இருக்கிறாரா என செக் செய்யும்.
-    """
-    # 1. Find Current User
     current_user = db.query(User).filter(User.phone_number == data.user_phone).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="Current user not found in Qtalk!")
 
-    # 2. Check if Target User is registered on Qtalk
     target_user = db.query(User).filter(User.phone_number == data.contact_phone).first()
     if not target_user:
         return {"success": False, "message": "User not registered on Qtalk!"}
 
-    # Don't let user add themselves
     if current_user.id == target_user.id:
         return {"success": False, "message": "You cannot add yourself as a contact!"}
 
-    # 3. Check if contact already exists
     existing_contact = db.query(Contact).filter(
         Contact.user_id == current_user.id,
         Contact.contact_user_id == target_user.id
@@ -96,9 +86,6 @@ def add_contact(data: AddContactRequest, db: Session = Depends(get_db)):
 # ------------------------------------------------------------------
 @router.get("/{user_phone}")
 def get_contacts(user_phone: str, db: Session = Depends(get_db)):
-    """
-    கொடுக்கப்பட்ட பயனரின் போன் நம்பரை வைத்து அவரின் முழுமையான Contact List-ஐ எடுக்கும்.
-    """
     current_user = db.query(User).filter(User.phone_number == user_phone).first()
     if not current_user:
         raise HTTPException(status_code=404, detail="User not found")
