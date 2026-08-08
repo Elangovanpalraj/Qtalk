@@ -13,6 +13,7 @@ class User(Base):
     name = Column(String(100), default="User")
     about = Column(String(255), default="Hey there! I am using Qtalk.")
     avatar_url = Column(String(255), default="https://ui-avatars.com/api/?name=User")
+    fcm_token = Column(String(255), nullable=True)  # 🔥 Added for Push Notifications (FCM)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
