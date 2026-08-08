@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -18,6 +18,7 @@ class Group(Base):
     creator = relationship("User", foreign_keys=[created_by])
     members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="group", cascade="all, delete-orphan")
+    polls = relationship("Poll", back_populates="group", cascade="all, delete-orphan")
 
 
 class GroupMember(Base):
@@ -42,12 +43,12 @@ class Message(Base):
     receiver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # None for group chats
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)     # None for direct chats
     
-    # Message Types: text, image, video, voice, document, location, contact, link
+    # Message Types: text, image, video, voice, document, location, contact, link, poll
     msg_type = Column(String, default="text") 
     content = Column(Text, nullable=True)
     media_url = Column(String, nullable=True)
     
-    # Reply & Forwarding
+    # Reply & Forwarding (Feature 3 Support)
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     is_forwarded = Column(Boolean, default=False)
     
@@ -102,6 +103,58 @@ class MessageReceipt(Base):
 
     message = relationship("Message", back_populates="receipts")
     user = relationship("User")
+
+
+# ------------------------------------------------------------------
+# 📊 FEATURE 6: POLLS & SURVEYS MODELS
+# ------------------------------------------------------------------
+class Poll(Base):
+    __tablename__ = "polls"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    question = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    group = relationship("Group", back_populates="polls")
+    creator = relationship("User")
+    options = relationship("PollOption", back_populates="poll", cascade="all, delete-orphan")
+    votes = relationship("PollVote", back_populates="poll", cascade="all, delete-orphan")
+
+
+class PollOption(Base):
+    __tablename__ = "poll_options"
+
+    id = Column(Integer, primary_key=True, index=True)
+    poll_id = Column(Integer, ForeignKey("polls.id"), nullable=False)
+    option_text = Column(String, nullable=False)
+    vote_count = Column(Integer, default=0)
+
+    # Relationships
+    poll = relationship("Poll", back_populates="options")
+    votes = relationship("PollVote", back_populates="option", cascade="all, delete-orphan")
+
+
+class PollVote(Base):
+    __tablename__ = "poll_votes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    poll_id = Column(Integer, ForeignKey("polls.id"), nullable=False)
+    option_id = Column(Integer, ForeignKey("poll_options.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    poll = relationship("Poll", back_populates="votes")
+    option = relationship("PollOption", back_populates="votes")
+    user = relationship("User")
+
+    # Constraint to ensure a user votes only once per poll
+    __table_args__ = (
+        UniqueConstraint('poll_id', 'user_id', name='uq_poll_user_vote'),
+    )
 
 
 class UserStatus(Base):
