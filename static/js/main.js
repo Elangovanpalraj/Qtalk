@@ -135,12 +135,16 @@ function connectWebSocket() {
         const data = JSON.parse(event.data);
         const eventType = data.type || data.event;
 
+        // Support both sender/receiver and sender_id/receiver_id formats from backend
+        const msgSender = data.sender || data.sender_id;
+        const msgReceiver = data.receiver || data.receiver_id;
+
         switch (eventType) {
             case "new_message":
             case "send_message": {
                 const isCurrentChat = (
-                    data.sender === selectedUser || 
-                    data.receiver === selectedUser || 
+                    msgSender === selectedUser || 
+                    msgReceiver === selectedUser || 
                     (data.group_id && data.group_id === selectedGroupId)
                 );
 
@@ -150,25 +154,25 @@ function connectWebSocket() {
 
                 if (isCurrentChat) {
                     appendMessageToUI(data);
-                    if (data.sender === selectedUser) {
-                        socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: data.sender }));
+                    if (msgSender === selectedUser) {
+                        socket.send(JSON.stringify({ type: "mark_read", message_ids: [data.id], sender_phone: msgSender }));
                     }
                 } else {
-                    const sender = data.sender;
-                    unreadCounts[sender] = (unreadCounts[sender] || 0) + 1;
-                    updateUnreadBadgeUI(sender);
+                    const senderKey = msgSender;
+                    unreadCounts[senderKey] = (unreadCounts[senderKey] || 0) + 1;
+                    updateUnreadBadgeUI(senderKey);
 
                     if (Notification.permission === "granted") {
-                        new Notification(`New message from ${data.sender}`, {
+                        new Notification(`New message from ${msgSender}`, {
                             body: data.content || "Sent a media file",
-                            icon: "https://ui-avatars.com/api/?name=" + data.sender
+                            icon: "https://ui-avatars.com/api/?name=" + msgSender
                         });
                     }
                 }
                 break;
             }
             case "typing": {
-                if (data.sender === selectedUser) {
+                if (msgSender === selectedUser) {
                     const statusElem = document.getElementById("chatStatusText") || document.getElementById("typing-indicator");
                     if (statusElem) {
                         statusElem.innerText = data.is_typing ? "typing..." : "Online";
@@ -277,7 +281,8 @@ function appendMessageToUI(msg) {
 
     if (msg.id && document.getElementById(`msg-${msg.id}`)) return;
 
-    const isOutgoing = String(msg.sender) === String(currentUserPhone);
+    const msgSender = msg.sender || msg.sender_id;
+    const isOutgoing = String(msgSender) === String(currentUserPhone);
     const msgDiv = document.createElement("div");
     msgDiv.id = msg.id ? `msg-${msg.id}` : `msg-temp-${Date.now()}`;
     
@@ -372,7 +377,10 @@ function selectContact(phone, name) {
     const activeChatWrapper = document.getElementById("activeChatWrapper");
 
     if (emptyState) emptyState.style.display = "none";
-    if (activeChatWrapper) activeChatWrapper.style.display = "flex";
+    if (activeChatWrapper) {
+        activeChatWrapper.style.display = "flex";
+        activeChatWrapper.classList.add("mobile-active"); // Fixed mobile view display toggle
+    }
 
     const titleElem = document.getElementById("chatWithTitle");
     if (titleElem) titleElem.innerText = name;
@@ -392,7 +400,7 @@ async function loadContactsAndGroups() {
     try {
         const res = await fetch(`/contacts/${currentUserPhone}`);
         const data = await res.json();
-        const contacts = data.contacts || []; // FIXED: safely extracting contacts array
+        const contacts = data.contacts || []; 
         
         const list = document.getElementById("userList");
         if (!list) return;
@@ -544,7 +552,7 @@ async function handleCallOffer(data) {
         if (event.candidate && socket) {
             socket.send(JSON.stringify({
                 type: "ice_candidate",
-                receiver: data.sender,
+                receiver: data.sender || data.sender_id,
                 candidate: event.candidate
             }));
         }
@@ -560,7 +568,7 @@ async function handleCallOffer(data) {
     
     socket.send(JSON.stringify({
         type: "call_answer",
-        receiver: data.sender,
+        receiver: data.sender || data.sender_id,
         sdp: answer
     }));
 }
@@ -570,7 +578,10 @@ function closeChatMobile() {
     const activeChatWrapper = document.getElementById("activeChatWrapper");
     const emptyState = document.getElementById("emptyState");
 
-    if (activeChatWrapper) activeChatWrapper.style.display = "none";
+    if (activeChatWrapper) {
+        activeChatWrapper.style.display = "none";
+        activeChatWrapper.classList.remove("mobile-active");
+    }
     if (emptyState) emptyState.style.display = "flex";
 }
 
