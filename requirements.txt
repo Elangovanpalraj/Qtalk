@@ -9,3 +9,5 @@ pytest
 httpx
 Pillow
 jinja2
+passlib[bcrypt]
+bcrypt
