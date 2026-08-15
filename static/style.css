@@ -8,7 +8,7 @@ body.dark{--bg:#111b21;--panel:#202c33;--chat:#0b141a;--text:#e9edef;--muted:#ae
   #app{height:100dvh;min-height:100dvh;overflow:hidden}
   .sidebar{width:100%;min-width:100%;height:100dvh}
   .chat{display:none;width:100%;height:100dvh}
-  .chat.open{display:flex;position:fixed;inset:0;z-index:5}
+  .chat.open{display:flex;position:fixed;inset:0;z-index:5;background:var(--chat)}
   .chat.open .conversation{height:100dvh}
   .back{display:block}
   .chat-head{height:58px;padding:0 8px}

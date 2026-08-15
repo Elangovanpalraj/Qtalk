@@ -13,20 +13,15 @@
         <button title="New chat" onclick="openNewChat()">＋</button>
         <button title="Status" onclick="openStatus()">◉</button>
         <button title="Dark mode" onclick="toggleDark()">◐</button>
-        <button title="Logout" onclick="logout()">↪</button>
+        <button title="Profile & settings" onclick="editProfile()">⚙</button><button title="Logout" onclick="logout()">↪</button>
       </div>
     </header>
-    <div class="me-row">
-      <div id="myAvatar" class="avatar">Q</div>
-      <div class="me-info"><b id="myName">User</b><small id="myPhone"></small><small id="myAbout"></small></div>
-      <button class="icon" onclick="editProfile()">⚙</button>
-    </div>
     <div class="search"><span>⌕</span><input id="search" placeholder="Search people or chats" autocomplete="off" oninput="searchEverything()"><button id="clearSearch" class="clear-search hidden" onclick="clearSearch()">×</button></div>
     <div class="tabs"><button class="tab active" onclick="showTab('chats',this)">Chats</button><button class="tab" onclick="showTab('contacts',this)">Contacts</button><button class="tab" onclick="showTab('status',this)">Status</button></div>
     <div id="list" class="list"></div>
   </aside>
 
-  <main class="chat">
+  <main id="chat" class="chat">
     <div id="empty" class="empty"><div class="empty-logo">Q</div><h2>Qtalk Web</h2><p>Private, realtime messaging — WhatsApp-style.</p><button class="primary small-btn" onclick="openNewChat()">＋ New chat</button></div>
     <section id="conversation" class="conversation hidden">
       <header class="chat-head">

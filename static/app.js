@@ -75,13 +75,36 @@ async function showTab(tab,btn){
 }
 async function startDirect(id){try{let d=await api(`/api/chats/direct/${id}`,{method:"POST"});await loadChats();let c=chats.find(x=>x.id===d.id);if(c)await openChat(c);closeModal("newChatModal")}catch(e){toast(e.message)}}
 async function openChat(c){
-  activeChat=c;$("empty").classList.add("hidden");$("conversation").classList.remove("hidden");$("conversation").classList.add("open");
-  $("chatTitle").textContent=c.title;setAvatar($("chatAvatar"),c.other||{name:c.title});
+  // Open the mobile chat view immediately. Do not wait for the network; on a
+  // slow phone/Render cold start the old code left the user on the chat list.
+  activeChat=c;
+  const chatEl=$("chat");
+  $("empty").classList.add("hidden");
+  $("conversation").classList.remove("hidden");
+  $("conversation").classList.add("open");
+  if(window.innerWidth<=760) chatEl.classList.add("open");
+
+  $("chatTitle").textContent=c.title;
+  setAvatar($("chatAvatar"),c.other||{name:c.title});
   $("chatStatus").textContent=c.kind==="group"?`${c.member_ids.length} members`:c.other?.is_online?"online":"offline";
-  await loadMessages();await api(`/api/chats/${c.id}/read`,{method:"POST"}).catch(()=>{});await loadChats();
-  if(innerWidth<760)$("conversation").closest(".chat").classList.add("open")
+
+  try{
+    await loadMessages();
+    await api(`/api/chats/${c.id}/read`,{method:"POST"}).catch(()=>{});
+    await loadChats();
+  }catch(e){
+    toast(e.message||"Could not load chat");
+  }
 }
-function closeChat(){$("conversation").closest(".chat").classList.remove("open");$("conversation").classList.remove("open");$("empty").classList.remove("hidden");activeChat=null;replyId=null;closePopup("chatMenu");toggleAttach(false);toggleEmoji(false);$("replyBar").classList.add("hidden")}
+function closeChat(){
+  $("chat").classList.remove("open");
+  $("conversation").classList.remove("open");
+  $("conversation").classList.add("hidden");
+  $("empty").classList.remove("hidden");
+  activeChat=null;replyId=null;
+  closePopup("chatMenu");toggleAttach(false);toggleEmoji(false);
+  $("replyBar").classList.add("hidden");
+}
 async function loadMessages(){if(!activeChat)return;try{let ms=await api(`/api/chats/${activeChat.id}/messages?limit=300`);renderMessages(ms)}catch(e){toast(e.message)}}
 
 function formatLocalDateTime(timestamp){
