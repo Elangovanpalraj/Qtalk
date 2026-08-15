@@ -450,10 +450,13 @@ def messages(chat_id:int,limit:int=100,before_id:int|None=None,user=Depends(curr
 @router.post("/messages")
 async def create_message(data:MessageIn,user=Depends(current_user),db:Session=Depends(get_db)):
     c,m,duplicate=create_message_record(db,user.id,data)
-    payload=msg_json(db,m,user.id)
     if not duplicate:
-        await manager.send_many(chat_member_ids(c),{"type":"message","message":payload})
-    return payload
+        for recipient_id in chat_member_ids(c):
+            await manager.send_user(recipient_id,{"type":"message","message":msg_json(db,m,recipient_id)})
+        for recipient_id in chat_member_ids(c):
+            if recipient_id != user.id and manager.online(recipient_id):
+                await manager.send_user(user.id,{"type":"delivery","chat_id":c.id,"user_id":recipient_id,"message_ids":[m.id]})
+    return msg_json(db,m,user.id)
 
 @router.post("/chats/{chat_id}/media")
 async def media_message(chat_id:int,file:UploadFile=File(...),user=Depends(current_user),db:Session=Depends(get_db)):
@@ -467,9 +470,12 @@ async def media_message(chat_id:int,file:UploadFile=File(...),user=Depends(curre
         if uid!=user.id and manager.online(uid): db.add(MessageDelivery(message_id=m.id,user_id=uid,delivered_at=now))
     if any(manager.online(uid) for uid in chat_member_ids(c) if uid!=user.id):m.delivered_at=now
     db.commit();db.refresh(m)
-    payload=msg_json(db,m,user.id)
-    await manager.send_many(chat_member_ids(c),{"type":"message","message":payload})
-    return payload
+    for recipient_id in chat_member_ids(c):
+        await manager.send_user(recipient_id,{"type":"message","message":msg_json(db,m,recipient_id)})
+    for recipient_id in chat_member_ids(c):
+        if recipient_id != user.id and manager.online(recipient_id):
+            await manager.send_user(user.id,{"type":"delivery","chat_id":c.id,"user_id":recipient_id,"message_ids":[m.id]})
+    return msg_json(db,m,user.id)
 
 @router.patch("/messages/{message_id}")
 async def edit_message(message_id:int,data:EditIn,user=Depends(current_user),db:Session=Depends(get_db)):

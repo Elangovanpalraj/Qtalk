@@ -3,7 +3,32 @@ let token=localStorage.getItem("qtalk_token")||"",me=null,ws=null,chats=[],activ
 const $=id=>document.getElementById(id);
 function esc(s=""){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]))}
 function avatarHTML(u,cls="avatar"){let initial=esc((u?.name||"U").trim().slice(0,1).toUpperCase());return `<div class="${cls}"${u?.avatar_url?` style="background-image:url('${esc(u.avatar_url)}')"`:``}>${u?.avatar_url?"":initial}</div>`}
-async function api(url,opt={}){opt.credentials="same-origin";opt.headers={...(opt.headers||{})};if(token)opt.headers.Authorization=`Bearer ${token}`;if(opt.body&&!(opt.body instanceof FormData))opt.headers["Content-Type"]="application/json";let r=await fetch(url,opt);let d={};try{d=await r.json()}catch{}if(r.status===401){logout(true);throw Error("Unauthorized")}if(!r.ok)throw Error(d.detail||"Request failed");return d}
+async function api(url,opt={}){
+  opt={...opt,credentials:"same-origin"};
+  opt.headers={...(opt.headers||{})};
+  if(token)opt.headers.Authorization=`Bearer ${token}`;
+  if(opt.body&&!(opt.body instanceof FormData))opt.headers["Content-Type"]="application/json";
+  let r=await fetch(url,opt),d={};
+  try{d=await r.json()}catch{}
+  // If an old/stale localStorage token is present, retry once using the
+  // persistent HttpOnly cookie. This prevents refresh/navigation from
+  // unnecessarily sending the user back to OTP login.
+  if(r.status===401&&token){
+    const retry={...opt,headers:{...(opt.headers||{})}};
+    delete retry.headers.Authorization;
+    r=await fetch(url,retry);d={};try{d=await r.json()}catch{}
+    if(r.ok){token="";localStorage.removeItem("qtalk_token");return d}
+  }
+  if(r.status===401){clearSessionUI();throw Error("Unauthorized")}
+  if(!r.ok)throw Error(d.detail||"Request failed");
+  return d
+}
+function clearSessionUI(){
+  wsStop=true;clearTimeout(wsReconnectTimer);clearInterval(pingTimer);
+  try{ws?.close()}catch{};ws=null;token="";me=null;
+  localStorage.removeItem("qtalk_token");
+  $("login")?.classList.remove("hidden");
+}
 function toast(msg){let t=$("toast");t.textContent=msg;t.classList.remove("hidden");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.add("hidden"),2600)}
 
 async function boot(){
@@ -180,29 +205,48 @@ function connectWS(){
   ws.onopen=()=>{ws.send(JSON.stringify({token:token||null}));pingTimer=setInterval(()=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"ping"}))},25000)}
   ws.onmessage=async e=>{
     let d;try{d=JSON.parse(e.data)}catch{return}
-    if(d.type==="ready")return;
+    if(d.type==="ready"){
+      await loadChats();
+      if(activeChat)await loadMessages();
+      return;
+    }
     if(d.type==="pong")return;
     if(d.type==="message"){
-      if(activeChat&&d.message.chat_id===activeChat.id){renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight;api(`/api/chats/${activeChat.id}/read`,{method:"POST"}).catch(()=>{})}
-      await loadChats()
-    }else if(d.type==="message_ack"){pendingMessages.delete(d.client_id);if(activeChat&&d.message.chat_id===activeChat.id){renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight}}
+      if(activeChat&&d.message.chat_id===activeChat.id){
+        renderMessage(d.message);
+        $("messages").scrollTop=$("messages").scrollHeight;
+        if(d.message.sender_id!==me?.id)api(`/api/chats/${activeChat.id}/read`,{method:"POST"}).catch(()=>{});
+      }
+      await loadChats();
+    }else if(d.type==="message_ack"){
+      pendingMessages.delete(d.client_id);
+      if(activeChat&&d.message.chat_id===activeChat.id){renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight}
+    }
     else if(d.type==="message_error"){pendingMessages.delete(d.client_id);toast(d.message||"Message failed")}
     else if(d.type==="message_updated"){if(activeChat&&d.message.chat_id===activeChat.id)await loadMessages();await loadChats()}
     else if(d.type==="message_deleted"){$(`m-${d.message_id}`)?.remove();await loadChats()}
     else if(d.type==="reaction"||d.type==="message_meta"){if(activeChat)await loadMessages()}
     else if(d.type==="read"||d.type==="delivery"){
+      const ids=new Set(d.message_ids||[]);
+      // Delivery/read events are sent to the original sender. Update only
+      // messages that belong to the currently open chat.
       if(activeChat&&d.chat_id===activeChat.id){
-        const ids=new Set(d.message_ids||[]);
-        if(d.type==="read"){ids.forEach(id=>{const el=$(`m-${id}`);const t=el?.querySelector(".ticks");if(t){t.textContent="✓✓";t.className="ticks read";t.title="Read"}})}
-        else {ids.forEach(id=>{const el=$(`m-${id}`);const t=el?.querySelector(".ticks");if(t&&!t.classList.contains("read")){t.textContent="✓✓";t.className="ticks delivered";t.title="Delivered"}})}
+        ids.forEach(id=>{
+          const el=$(`m-${id}`);const t=el?.querySelector(".ticks");
+          if(!t)return;
+          if(d.type==="read"){t.textContent="✓✓";t.className="ticks read";t.title="Read"}
+          else if(!t.classList.contains("read")){t.textContent="✓✓";t.className="ticks delivered";t.title="Delivered"}
+        });
       }
       await loadChats();
     }
     else if(d.type==="typing"&&activeChat&&d.chat_id===activeChat.id){$("typing").classList.toggle("hidden",!d.is_typing)}
     else if(d.type==="presence"){
-      chats.forEach(c=>{if(c.other?.id===d.user_id){c.other.is_online=d.online;c.other.last_seen=d.last_seen||c.other.last_seen;}});
+      chats.forEach(c=>{if(c.other?.id===d.user_id){c.other.is_online=!!d.online;c.other.last_seen=d.last_seen||c.other.last_seen;}});
       if(activeChat?.other?.id===d.user_id){
-        $("chatStatus").textContent=d.online?"online":`last seen ${formatLocalDateTime(d.last_seen)}`;
+        activeChat.other.is_online=!!d.online;
+        activeChat.other.last_seen=d.last_seen||activeChat.other.last_seen;
+        $("chatStatus").textContent=d.online?"online":(d.last_seen?`last seen ${formatLocalDateTime(d.last_seen)}`:"offline");
       }
       if(!$("search").value.trim())renderList("chats",chats);
     }

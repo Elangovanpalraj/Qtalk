@@ -82,6 +82,16 @@ async def websocket(ws: WebSocket):
         delivery_changes=mark_pending_delivered(db,user_id)
         await broadcast_presence(db,user_id,True)
 
+        # Send the newly connected user the current presence of users already
+        # connected. This prevents an online contact from incorrectly showing
+        # as offline until they reconnect.
+        for other in db.query(User).all():
+            if other.id != user_id and manager.online(other.id):
+                await manager.send_user(user_id,{
+                    "type":"presence", "user_id":other.id, "online":True,
+                    "last_seen":datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00","Z")
+                })
+
         # Notify original senders that their offline messages reached this user's device.
         grouped={}
         for message_id,chat_id,sender_id in delivery_changes:
@@ -125,10 +135,32 @@ async def websocket(ws: WebSocket):
                 )
                 try:
                     chat,message,duplicate=create_message_record(db,user_id,msg_data)
-                    payload={"type":"message","message":msg_json(db,message,user_id)}
+                    members=chat_member_ids(chat)
                     if not duplicate:
-                        await manager.send_many(chat_member_ids(chat),payload)
-                    await manager.send_user(user_id,{"type":"message_ack","client_id":data.get("client_id"),"message":payload["message"]})
+                        # Serialize the same DB message separately for every
+                        # connected user. `mine` must be calculated from the
+                        # receiver's id, otherwise the receiver sees incoming
+                        # messages on the right side.
+                        for recipient_id in members:
+                            await manager.send_user(
+                                recipient_id,
+                                {"type":"message", "message":msg_json(db,message,recipient_id)},
+                            )
+                        # Delivery is a state change for the sender. Tell the
+                        # sender immediately when the recipient is connected.
+                        for recipient_id in members:
+                            if recipient_id != user_id and manager.online(recipient_id):
+                                await manager.send_user(
+                                    user_id,
+                                    {"type":"delivery", "chat_id":chat.id,
+                                     "user_id":recipient_id,
+                                     "message_ids":[message.id]},
+                                )
+                    await manager.send_user(
+                        user_id,
+                        {"type":"message_ack", "client_id":data.get("client_id"),
+                         "message":msg_json(db,message,user_id)},
+                    )
                 except Exception as exc:
                     db.rollback()
                     await manager.send_user(user_id,{"type":"message_error","client_id":data.get("client_id"),"message":str(exc)})
