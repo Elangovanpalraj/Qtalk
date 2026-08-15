@@ -86,7 +86,7 @@ async function openChat(c){
 
   $("chatTitle").textContent=c.title;
   setAvatar($("chatAvatar"),c.other||{name:c.title});
-  $("chatStatus").textContent=c.kind==="group"?`${c.member_ids.length} members`:c.other?.is_online?"online":"offline";
+  $("chatStatus").textContent=c.kind==="group"?`${c.member_ids.length} members`:c.other?.is_online?"online":(c.other?.last_seen?`last seen ${formatLocalDateTime(c.other.last_seen)}`:"offline");
 
   try{
     await loadMessages();
@@ -131,7 +131,7 @@ function renderMessage(m){
   let body=m.deleted?"<i>This message was deleted</i>":esc(m.text||"");
   if(m.media_url){if(m.media_type==="image")body+=`<img class="media" src="${esc(m.media_url)}" onclick="window.open('${esc(m.media_url)}','_blank')">`;else if(m.media_type==="audio")body+=`<audio controls src="${esc(m.media_url)}"></audio>`;else if(m.media_type==="video")body+=`<video class="media" controls src="${esc(m.media_url)}"></video>`;else body+=`<a href="${esc(m.media_url)}" target="_blank" rel="noopener">📎 ${esc(m.file_name||"Document")}</a>`}
   let reactions=m.reactions?.length?`<div class="reaction-row">${m.reactions.map(r=>esc(r.emoji)).join(" ")}</div>`:"";
-  let ticks=m.mine?`<span class="ticks">${m.read?"✓✓":"✓"}</span>`:"";
+  let ticks=m.mine?`<span class="ticks ${m.read?"read":(m.delivered?"delivered":"sent")}" title="${m.read?"Read":(m.delivered?"Delivered":"Sent")}">${m.read?"✓✓":(m.delivered?"✓✓":"✓")}</span>`:"";
   let actionButtons=`<button title="Reply" onclick="replyTo(${m.id})">↩</button><button title="Heart" onclick="react(${m.id},'❤️')">❤️</button><button title="Star" onclick="starMsg(${m.id})">${m.starred?"★":"☆"}</button><button title="Pin" onclick="pinMsg(${m.id})">${m.pinned?"📌":"📍"}</button>`;
   if(m.mine&&!m.deleted)actionButtons+=`<button title="Edit" onclick="editMsg(${m.id})">✎</button><button title="Delete" onclick="delMsg(${m.id})">🗑</button>`;
   div.innerHTML=`<div class="msg-actions">${actionButtons}</div>${m.reply_to_id?`<div class="reply-mini">↩ Reply to #${m.reply_to_id}</div>`:""}<span>${body}</span><span class="time">${formatLocalDateTime(m.created_at)} ${m.edited?" · edited ":""}${ticks}</span>${reactions}`;
@@ -190,9 +190,22 @@ function connectWS(){
     else if(d.type==="message_updated"){if(activeChat&&d.message.chat_id===activeChat.id)await loadMessages();await loadChats()}
     else if(d.type==="message_deleted"){$(`m-${d.message_id}`)?.remove();await loadChats()}
     else if(d.type==="reaction"||d.type==="message_meta"){if(activeChat)await loadMessages()}
-    else if(d.type==="read"||d.type==="delivery"){if(activeChat)await loadMessages();await loadChats()}
+    else if(d.type==="read"||d.type==="delivery"){
+      if(activeChat&&d.chat_id===activeChat.id){
+        const ids=new Set(d.message_ids||[]);
+        if(d.type==="read"){ids.forEach(id=>{const el=$(`m-${id}`);const t=el?.querySelector(".ticks");if(t){t.textContent="✓✓";t.className="ticks read";t.title="Read"}})}
+        else {ids.forEach(id=>{const el=$(`m-${id}`);const t=el?.querySelector(".ticks");if(t&&!t.classList.contains("read")){t.textContent="✓✓";t.className="ticks delivered";t.title="Delivered"}})}
+      }
+      await loadChats();
+    }
     else if(d.type==="typing"&&activeChat&&d.chat_id===activeChat.id){$("typing").classList.toggle("hidden",!d.is_typing)}
-    else if(d.type==="presence"){let c=chats.find(x=>x.other?.id===d.user_id);if(c){c.other.is_online=d.online;if(activeChat?.other?.id===d.user_id)$("chatStatus").textContent=d.online?"online":"offline";if(!$("search").value.trim())renderList("chats",chats)}}
+    else if(d.type==="presence"){
+      chats.forEach(c=>{if(c.other?.id===d.user_id){c.other.is_online=d.online;c.other.last_seen=d.last_seen||c.other.last_seen;}});
+      if(activeChat?.other?.id===d.user_id){
+        $("chatStatus").textContent=d.online?"online":`last seen ${formatLocalDateTime(d.last_seen)}`;
+      }
+      if(!$("search").value.trim())renderList("chats",chats);
+    }
     else if(d.type==="call")handleCallSignal(d)
   };
   ws.onclose=()=>{clearInterval(pingTimer);if(!wsStop){clearTimeout(wsReconnectTimer);wsReconnectTimer=setTimeout(connectWS,2000)}}

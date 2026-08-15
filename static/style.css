@@ -30,3 +30,5 @@ body.dark{--bg:#111b21;--panel:#202c33;--chat:#0b141a;--text:#e9edef;--muted:#ae
 .msg-actions button{background:var(--panel);padding:5px;border-radius:5px}
 .bubble{scroll-margin-top:70px}
 .status-viewed{opacity:.6}
+
+.ticks{font-weight:700;margin-left:3px}.ticks.sent{color:var(--muted)}.ticks.delivered{color:var(--muted)}.ticks.read{color:#53bdeb}
