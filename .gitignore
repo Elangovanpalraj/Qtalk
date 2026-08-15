@@ -1,3 +1,7 @@
-venv/ 
-*.db 
-__pycache__/ 
+.venv/
+__pycache__/
+*.pyc
+qtalk.db
+.env
+uploads/*
+!uploads/.gitkeep

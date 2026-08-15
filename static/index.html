@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Qtalk</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <header class="topbar">
+      <div class="brand">Qtalk<span>•</span></div>
+      <div class="top-actions">
+        <button title="New chat" onclick="openNewChat()">＋</button>
+        <button title="Status" onclick="openStatus()">◉</button>
+        <button title="Dark mode" onclick="toggleDark()">◐</button>
+        <button title="Logout" onclick="logout()">↪</button>
+      </div>
+    </header>
+    <div class="me-row">
+      <div id="myAvatar" class="avatar">Q</div>
+      <div class="me-info"><b id="myName">User</b><small id="myPhone"></small><small id="myAbout"></small></div>
+      <button class="icon" onclick="editProfile()">⚙</button>
+    </div>
+    <div class="search"><span>⌕</span><input id="search" placeholder="Search people or chats" autocomplete="off" oninput="searchEverything()"><button id="clearSearch" class="clear-search hidden" onclick="clearSearch()">×</button></div>
+    <div class="tabs"><button class="tab active" onclick="showTab('chats',this)">Chats</button><button class="tab" onclick="showTab('contacts',this)">Contacts</button><button class="tab" onclick="showTab('status',this)">Status</button></div>
+    <div id="list" class="list"></div>
+  </aside>
+
+  <main class="chat">
+    <div id="empty" class="empty"><div class="empty-logo">Q</div><h2>Qtalk Web</h2><p>Private, realtime messaging — WhatsApp-style.</p><button class="primary small-btn" onclick="openNewChat()">＋ New chat</button></div>
+    <section id="conversation" class="conversation hidden">
+      <header class="chat-head">
+        <button class="back" onclick="closeChat()">‹</button>
+        <div id="chatAvatar" class="avatar small">Q</div>
+        <div class="chat-title"><b id="chatTitle">Chat</b><small id="chatStatus">offline</small></div>
+        <div class="head-actions">
+          <button title="Video call" onclick="startCall('video')">▣</button><button title="Voice call" onclick="startCall('audio')">☎</button>
+          <button title="Search in chat" onclick="searchInChat()">⌕</button><button title="Menu" onclick="openChatMenu()">⋮</button>
+        </div>
+      </header>
+      <div id="pinnedBar" class="pinned-bar hidden" onclick="jumpToPinned()"></div>
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="typing hidden">typing…</div>
+      <div id="replyBar" class="reply hidden"></div>
+      <div id="attachMenu" class="attach-menu hidden"><button onclick="pickFile()">📄 / 🖼 / 🎵 Attach file</button></div>
+      <div id="emojiMenu" class="emoji-menu hidden"><button onclick="addEmoji('😀')">😀</button><button onclick="addEmoji('😂')">😂</button><button onclick="addEmoji('😍')">😍</button><button onclick="addEmoji('👍')">👍</button><button onclick="addEmoji('❤️')">❤️</button><button onclick="addEmoji('🔥')">🔥</button><button onclick="addEmoji('🙏')">🙏</button><button onclick="addEmoji('🎉')">🎉</button></div>
+      <div class="composer"><input type="file" id="fileInput" hidden onchange="sendFile()"><button onclick="toggleAttach()">＋</button><button onclick="toggleEmoji()">☺</button><input id="messageInput" placeholder="Type a message" onkeydown="keySend(event)" oninput="typingNow()"><button class="send" onclick="sendText()">➤</button></div>
+    </section>
+  </main>
+</div>
+
+<div id="login" class="modal"><div class="card login-card"><div class="logo-big">Q</div><h2>Welcome to Qtalk</h2><p>Enter your phone number.</p><input id="phone" placeholder="+91 9876543210" autocomplete="tel"><input id="name" placeholder="Your name (first login)" autocomplete="name"><button class="primary" onclick="requestOtp()">Send OTP</button><div id="otpArea" class="hidden"><input id="otp" placeholder="6-digit OTP" inputmode="numeric"><button class="primary" onclick="verifyOtp()">Verify & Continue</button></div><small id="otpHint"></small><p class="muted tiny">Development mode shows the OTP here. Use a real SMS provider before public deployment.</p></div></div>
+
+<div id="newChatModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New chat</h2><button onclick="closeModal('newChatModal')">×</button></div><input id="newChatSearch" placeholder="Search name or phone" oninput="searchNewChat()"><div id="newChatResults" class="modal-list"></div><div class="quick-actions"><button onclick="openGroupModal()">👥 New group</button><button onclick="openContactModal()">👤 New contact</button></div></div></div>
+<div id="groupModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New group</h2><button onclick="closeModal('groupModal')">×</button></div><input id="groupTitle" placeholder="Group subject"><input id="groupSearch" placeholder="Search members" oninput="searchGroupMembers()"><div id="groupMembers" class="modal-list"></div><button class="primary" onclick="createGroup()">Create group</button></div></div>
+<div id="contactModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New contact</h2><button onclick="closeModal('contactModal')">×</button></div><input id="contactPhone" placeholder="Phone number"><input id="contactName" placeholder="Nickname (optional)"><button class="primary" onclick="saveContact()">Save contact</button></div></div>
+<div id="statusModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New status</h2><button onclick="closeModal('statusModal')">×</button></div><textarea id="statusText" placeholder="What's on your mind?"></textarea><input id="statusBg" value="#075E54" type="color"><button class="primary" onclick="postStatus()">Post</button></div></div>
+<div id="profileModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Edit profile</h2><button onclick="closeModal('profileModal')">×</button></div><div class="profile-center"><div id="profileAvatar" class="avatar huge">Q</div><input type="file" id="avatarInput" accept="image/*" onchange="uploadAvatar()"></div><input id="profileName"><textarea id="profileAbout"></textarea><button class="primary" onclick="saveProfile()">Save</button></div></div>
+<div id="chatMenu" class="menu-popup hidden">
+  <button onclick="showChatInfo()">ⓘ Chat info</button><button onclick="searchInChat()">⌕ Search</button>
+  <button onclick="toggleMute()">🔕 Mute</button><button onclick="toggleArchive()">🗂 Archive</button>
+  <button onclick="clearChatMessages()">⊘ Clear chat for me</button>
+  <button onclick="deleteChatLocal()">🗑 Delete/close chat</button>
+  <button onclick="blockCurrentUser()">🚫 Block user</button>
+  <button onclick="closePopup('chatMenu')">Cancel</button>
+</div>
+<div id="callModal" class="modal hidden"><div class="card call-card"><h2 id="callTitle">Call</h2><video id="remoteVideo" autoplay playsinline></video><video id="localVideo" muted autoplay playsinline></video><div><button class="danger" onclick="hangup()">End call</button></div></div></div>
+<div id="incomingCall" class="modal hidden"><div class="card call-card"><div class="logo-big">☎</div><h2 id="incomingTitle">Incoming call</h2><p id="incomingType">Qtalk call</p><div class="call-buttons"><button class="accept" onclick="acceptIncomingCall()">Accept</button><button class="danger" onclick="rejectIncomingCall()">Decline</button></div></div></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body></html>
