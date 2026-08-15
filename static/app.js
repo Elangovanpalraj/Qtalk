@@ -290,10 +290,75 @@ function closePopup(id){$(id)?.classList.add("hidden")}
 async function postStatus(){try{await api("/api/status",{method:"POST",body:JSON.stringify({text:$("statusText").value,background:$("statusBg").value})});$("statusText").value="";closeModal("statusModal");await loadStatus();toast("Status posted")}catch(e){toast(e.message)}}
 async function loadStatus(){let s=await api("/api/status");$("list").innerHTML=s.length?s.map(x=>`<div class="list-item ${x.viewed?"status-viewed":""}" onclick="viewStatus(${x.id})">${avatarHTML({name:x.user_name,avatar_url:x.avatar_url})}<div class="list-main"><b>${esc(x.user_name)}</b><small>${esc(x.text||"Photo status")} · ${formatLocalDateTime(x.created_at)}</small></div></div>`).join(""):'<div class="empty-search">No active statuses.</div>'}
 async function viewStatus(id){await api(`/api/status/${id}/view`,{method:"POST"}).catch(()=>{});toast("Status viewed")}
-function showChatInfo(){
+async function showChatInfo(){
   if(!activeChat)return;
-  let text=activeChat.kind==="group"?`Group: ${activeChat.title}\nMembers: ${activeChat.member_ids.length}`:`Name: ${activeChat.title}\nPhone: ${activeChat.other?.phone||""}\nAbout: ${activeChat.other?.about||""}`;
-  alert(text);closePopup("chatMenu")
+  closePopup("chatMenu");
+  if(activeChat.kind==="group"){await openGroupInfo()}
+  else{
+    $("chatInfoBody").innerHTML=`<div class="profile-center">${avatarHTML(activeChat.other||{name:activeChat.title},"avatar huge")}<h3>${esc(activeChat.title)}</h3></div><p><b>Phone</b><br>${esc(activeChat.other?.phone||"")}</p><p><b>About</b><br>${esc(activeChat.other?.about||"")}</p>`;
+    $("chatInfoModal").classList.remove("hidden");
+  }
+}
+let groupInfoIsAdmin=false;
+async function openGroupInfo(){
+  if(!activeChat||activeChat.kind!=="group")return;
+  try{
+    let d=await api(`/api/chats/${activeChat.id}`);
+    groupInfoIsAdmin=d.am_admin;
+    $("groupInfoTitle").textContent=d.title||"Group info";
+    $("groupInfoAdminTools").classList.toggle("hidden",!d.am_admin);
+    $("groupAddSearch").value="";$("groupAddResults").innerHTML="";
+    $("groupMembersList").innerHTML=d.members.map(m=>{
+      let removeBtn=(d.am_admin&&m.id!==me.id)?`<button title="Remove" onclick="removeMemberFromGroup(${m.id})">✕</button>`:"";
+      return `<div class="result-row">${avatarHTML(m)}<div class="list-main"><b>${esc(m.name)}${m.is_admin?" · admin":""}</b><small>${esc(m.phone)}</small></div>${removeBtn}</div>`;
+    }).join("");
+    $("groupInfoModal").classList.remove("hidden");
+  }catch(e){toast(e.message)}
+}
+let groupAddTimer=null;
+function searchAddMember(){
+  clearTimeout(groupAddTimer);let q=$("groupAddSearch").value.trim();
+  if(q.length<2){$("groupAddResults").innerHTML="";return}
+  groupAddTimer=setTimeout(async()=>{
+    try{
+      let people=await api(`/api/users/search?q=${encodeURIComponent(q)}`);
+      $("groupAddResults").innerHTML=people.map(u=>`<div class="result-row"><span onclick="addMemberToGroup(${u.id})" style="cursor:pointer;flex:1;display:flex;align-items:center;gap:10px">${avatarHTML(u)}<div class="list-main"><b>${esc(u.name)}</b><small>${esc(u.phone)}</small></div></span></div>`).join("")||'<div class="empty-search">No user found.</div>'
+    }catch(e){toast(e.message)}
+  },220)
+}
+async function addMemberToGroup(userId){
+  if(!activeChat)return;
+  try{await api(`/api/chats/${activeChat.id}/members`,{method:"POST",body:JSON.stringify({member_ids:[userId]})});toast("Member added");await openGroupInfo()}catch(e){toast(e.message)}
+}
+async function removeMemberFromGroup(userId){
+  if(!activeChat)return;if(!confirm("Remove this member from the group?"))return;
+  try{await api(`/api/chats/${activeChat.id}/members/${userId}`,{method:"DELETE"});toast("Member removed");await openGroupInfo()}catch(e){toast(e.message)}
+}
+async function leaveGroupChat(){
+  if(!activeChat)return;if(!confirm(`Leave "${activeChat.title}"?`))return;
+  try{await api(`/api/chats/${activeChat.id}/leave`,{method:"POST"});closeModal("groupInfoModal");closeChat();await loadChats();toast("You left the group")}catch(e){toast(e.message)}
+}
+let archivedChats=[];
+async function openArchived(){
+  try{
+    archivedChats=await api("/api/chats?archived=true");
+    $("archivedList").innerHTML=archivedChats.length?archivedChats.map((c,i)=>`<div class="result-row">${avatarHTML(c.other||{name:c.title})}<div class="list-main" style="cursor:pointer" onclick="openArchivedChat(${i})"><b>${esc(c.title)}</b><small>${esc(c.last||"No messages yet")}</small></div><button title="Unarchive" onclick="unarchiveChat(${c.id})">📤</button></div>`).join(""):'<div class="empty-search">No archived chats.</div>';
+    $("archivedModal").classList.remove("hidden");
+  }catch(e){toast(e.message)}
+}
+function openArchivedChat(i){let c=archivedChats[i];if(!c)return;closeModal("archivedModal");openChat(c)}
+async function unarchiveChat(chatId){
+  try{await api(`/api/chats/${chatId}/settings`,{method:"POST",body:JSON.stringify({archived:false})});toast("Chat unarchived");await openArchived();await loadChats()}catch(e){toast(e.message)}
+}
+async function openBlocked(){
+  try{
+    let list=await api("/api/blocks");
+    $("blockedList").innerHTML=list.length?list.map(u=>`<div class="result-row">${avatarHTML(u)}<div class="list-main"><b>${esc(u.name)}</b><small>${esc(u.phone)}</small></div><button title="Unblock" onclick="unblockUser(${u.id})">Unblock</button></div>`).join(""):'<div class="empty-search">No blocked contacts.</div>';
+    $("blockedModal").classList.remove("hidden");
+  }catch(e){toast(e.message)}
+}
+async function unblockUser(userId){
+  try{await api(`/api/blocks/${userId}`,{method:"DELETE"});toast("Contact unblocked");await openBlocked()}catch(e){toast(e.message)}
 }
 function openChatMenu(){$("chatMenu").classList.toggle("hidden");toggleAttach(false);toggleEmoji(false)}
 async function toggleMute(){if(!activeChat)return;try{let muted=!activeChat.muted;let d=await api(`/api/chats/${activeChat.id}/settings`,{method:"POST",body:JSON.stringify({muted})});activeChat.muted=d.muted;closePopup("chatMenu");toast(muted?"Chat muted":"Chat unmuted")}catch(e){toast(e.message)}}

@@ -13,7 +13,7 @@
         <button title="New chat" onclick="openNewChat()">＋</button>
         <button title="Status" onclick="openStatus()">◉</button>
         <button title="Dark mode" onclick="toggleDark()">◐</button>
-        <button title="Profile & settings" onclick="editProfile()">⚙</button><button title="Logout" onclick="logout()">↪</button>
+        <button title="Archived chats" onclick="openArchived()">🗂</button><button title="Blocked contacts" onclick="openBlocked()">🚫</button><button title="Profile & settings" onclick="editProfile()">⚙</button><button title="Logout" onclick="logout()">↪</button>
       </div>
     </header>
     <div class="me-row" onclick="editProfile()" title="Edit your profile">
@@ -59,6 +59,15 @@
 <div id="contactModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New contact</h2><button onclick="closeModal('contactModal')">×</button></div><input id="contactPhone" placeholder="Phone number"><input id="contactName" placeholder="Nickname (optional)"><button class="primary" onclick="saveContact()">Save contact</button></div></div>
 <div id="statusModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New status</h2><button onclick="closeModal('statusModal')">×</button></div><textarea id="statusText" placeholder="What's on your mind?"></textarea><input id="statusBg" value="#075E54" type="color"><button class="primary" onclick="postStatus()">Post</button></div></div>
 <div id="profileModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Edit profile</h2><button onclick="closeModal('profileModal')">×</button></div><div class="profile-center"><div id="profileAvatar" class="avatar huge">Q</div><input type="file" id="avatarInput" accept="image/*" onchange="uploadAvatar()"></div><input id="profileName"><textarea id="profileAbout"></textarea><button class="primary" onclick="saveProfile()">Save</button></div></div>
+<div id="groupInfoModal" class="modal hidden"><div class="card"><div class="modal-head"><h2 id="groupInfoTitle">Group info</h2><button onclick="closeModal('groupInfoModal')">×</button></div>
+  <div id="groupInfoAdminTools" class="hidden"><input id="groupAddSearch" placeholder="Search name or phone to add" oninput="searchAddMember()"><div id="groupAddResults" class="modal-list"></div></div>
+  <div class="search-section">Members</div>
+  <div id="groupMembersList" class="modal-list"></div>
+  <button class="danger" onclick="leaveGroupChat()">🚪 Leave group</button>
+</div></div>
+<div id="chatInfoModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Contact info</h2><button onclick="closeModal('chatInfoModal')">×</button></div><div id="chatInfoBody"></div></div></div>
+<div id="archivedModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Archived chats</h2><button onclick="closeModal('archivedModal')">×</button></div><div id="archivedList" class="modal-list"></div></div></div>
+<div id="blockedModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Blocked contacts</h2><button onclick="closeModal('blockedModal')">×</button></div><div id="blockedList" class="modal-list"></div></div></div>
 <div id="chatMenu" class="menu-popup hidden">
   <button onclick="showChatInfo()">ⓘ Chat info</button><button onclick="searchInChat()">⌕ Search</button>
   <button onclick="toggleMute()">🔕 Mute</button><button onclick="toggleArchive()">🗂 Archive</button>

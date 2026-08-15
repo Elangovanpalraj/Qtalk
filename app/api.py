@@ -335,13 +335,13 @@ def contacts(user=Depends(current_user),db:Session=Depends(get_db)):
     return result
 
 @router.get("/chats")
-def chats(user=Depends(current_user),db:Session=Depends(get_db)):
+def chats(archived:bool=False,user=Depends(current_user),db:Session=Depends(get_db)):
     out=[]
     for c in db.query(Chat).order_by(Chat.id.desc()).all():
         ids=chat_member_ids(c)
         if user.id not in ids: continue
         setting=ensure_chat_setting(db,c.id,user.id)
-        if setting.archived:
+        if bool(setting.archived)!=archived:
             continue
         last_q=db.query(Message).filter(Message.chat_id==c.id)
         if setting.cleared_at:
@@ -369,6 +369,22 @@ def chats(user=Depends(current_user),db:Session=Depends(get_db)):
     db.commit()
     out.sort(key=lambda x:x["last_at"] or "",reverse=True)
     return out
+
+@router.get("/chats/{chat_id}")
+def chat_detail(chat_id:int,user=Depends(current_user),db:Session=Depends(get_db)):
+    c=db.get(Chat,chat_id)
+    if not is_member(c,user.id): raise HTTPException(403,"Forbidden")
+    members=[]
+    for u in c.members:
+        meta=db.query(GroupMemberMeta).filter_by(chat_id=chat_id,user_id=u.id).first()
+        row=user_json(u)
+        row["is_admin"]=bool(meta and meta.is_admin)
+        members.append(row)
+    my_meta=db.query(GroupMemberMeta).filter_by(chat_id=chat_id,user_id=user.id).first()
+    return {
+        "id":c.id,"kind":c.kind,"title":c.title,
+        "members":members,"am_admin":bool(my_meta and my_meta.is_admin),
+    }
 
 @router.post("/chats/direct/{user_id}")
 def create_direct(user_id:int,user=Depends(current_user),db:Session=Depends(get_db)):
