@@ -61,7 +61,7 @@ async function boot(){
     else toast("Qtalk is reconnecting…");
   }
 }
-function renderMe(){ $("myName").textContent=me.name;$("myPhone").textContent=me.phone;$("myAbout").textContent=me.about||"";setAvatar($("myAvatar"),me)}
+function renderMe(){ setAvatar($("myAvatar"),me) }
 function setAvatar(el,u){if(!el)return;el.textContent=u?.avatar_url?"":((u?.name||"Q").slice(0,1).toUpperCase());el.style.backgroundImage=u?.avatar_url?`url("${u.avatar_url}")`:""}
 async function requestOtp(){try{let phone=$("phone").value.trim();if(!phone)return toast("Enter phone number");let r=await fetch("/api/auth/send-otp",{credentials:"same-origin",method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Could not send OTP");$("otpArea").classList.remove("hidden");$("otpHint").textContent=d.dev_otp?`Development OTP: ${d.dev_otp}`:"OTP sent";$("otp").focus()}catch(e){toast(e.message)}}
 async function verifyOtp(){try{let r=await fetch("/api/auth/verify-otp",{credentials:"same-origin",method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:$("phone").value.trim(),otp:$("otp").value.trim(),name:$("name").value.trim()})});let d=await r.json();if(!r.ok)throw Error(d.detail||"Invalid OTP");token=d.token;localStorage.setItem("qtalk_token",token);$("login").classList.add("hidden");await boot()}catch(e){toast(e.message)}}
@@ -185,10 +185,10 @@ async function sendText(){
   }
 }
 function keySend(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendText()}}
-function pickFile(){toggleAttach(false);$("fileInput").click()}
-async function sendFile(){
-  let f=$("fileInput").files[0];if(!f||!activeChat)return;
-  try{let fd=new FormData();fd.append("file",f);await api(`/api/chats/${activeChat.id}/media`,{method:"POST",body:fd});$("fileInput").value="";await loadChats()}
+function pickFile(id){toggleAttach(false);$(id).click()}
+async function sendFile(inputEl){
+  let f=inputEl.files[0];if(!f||!activeChat)return;
+  try{let fd=new FormData();fd.append("file",f);await api(`/api/chats/${activeChat.id}/media`,{method:"POST",body:fd});inputEl.value="";await loadChats()}
   catch(e){toast(e.message)}
 }
 function toggleAttach(force){let el=$("attachMenu");if(force===false)el.classList.add("hidden");else el.classList.toggle("hidden");closePopup("chatMenu")}
@@ -316,7 +316,7 @@ async function createGroup(){let title=$("groupTitle").value.trim();if(!title)re
 function openContactModal(){closeModal("newChatModal");$("contactModal").classList.remove("hidden")}
 async function saveContact(){try{await api("/api/contacts",{method:"POST",body:JSON.stringify({phone:$("contactPhone").value,nickname:$("contactName").value})});closeModal("contactModal");toast("Contact saved");await showTab("contacts",document.querySelectorAll(".tab")[1])}catch(e){toast(e.message)}}
 function toggleDark(){document.body.classList.toggle("dark");localStorage.setItem("dark",document.body.classList.contains("dark"))}
-function editProfile(){$("profileName").value=me.name;$("profileAbout").value=me.about||"";setAvatar($("profileAvatar"),me);$("profileModal").classList.remove("hidden")}
+function editProfile(){$("profileName").value=me.name;$("profileAbout").value=me.about||"";$("profilePhone").textContent=me.phone||"";setAvatar($("profileAvatar"),me);$("profileModal").classList.remove("hidden")}
 async function saveProfile(){try{me=await api("/api/me",{method:"PUT",body:JSON.stringify({name:$("profileName").value,about:$("profileAbout").value})});renderMe();closeModal("profileModal");toast("Profile updated")}catch(e){toast(e.message)}}
 async function uploadAvatar(){let f=$("avatarInput").files[0];if(!f)return;try{let fd=new FormData();fd.append("file",f);let d=await api("/api/me/avatar",{method:"POST",body:fd});me.avatar_url=d.avatar_url;renderMe();setAvatar($("profileAvatar"),me);toast("Profile photo updated")}catch(e){toast(e.message)}}
 function openStatus(){$("statusModal").classList.remove("hidden")}

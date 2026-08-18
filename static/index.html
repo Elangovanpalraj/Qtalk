@@ -8,6 +8,7 @@
 <div id="app">
   <aside class="sidebar">
     <header class="topbar">
+      <button id="myAvatarBtn" class="avatar-icon-btn" onclick="editProfile()" title="Profile & settings"><div id="myAvatar" class="avatar small"></div></button>
       <div class="brand">Qtalk<span>•</span></div>
       <div class="top-actions">
         <button title="New chat" onclick="openNewChat()">＋</button>
@@ -16,14 +17,6 @@
         <button title="Archived chats" onclick="openArchived()">🗂</button><button title="Blocked contacts" onclick="openBlocked()">🚫</button><button title="Profile & settings" onclick="editProfile()">⚙</button><button title="Logout" onclick="logout()">↪</button>
       </div>
     </header>
-    <div class="me-row" onclick="editProfile()" title="Edit your profile">
-      <div id="myAvatar" class="avatar"></div>
-      <div class="me-info">
-        <b id="myName">You</b>
-        <small id="myPhone"></small>
-        <small id="myAbout" class="me-about"></small>
-      </div>
-    </div>
     <div class="search"><span>⌕</span><input id="search" placeholder="Search people or chats" autocomplete="off" oninput="searchEverything()"><button id="clearSearch" class="clear-search hidden" onclick="clearSearch()">×</button></div>
     <div class="tabs"><button class="tab active" onclick="showTab('chats',this)">Chats</button><button class="tab" onclick="showTab('contacts',this)">Contacts</button><button class="tab" onclick="showTab('status',this)">Status</button></div>
     <div id="list" class="list"></div>
@@ -45,9 +38,18 @@
       <div id="messages" class="messages"></div>
       <div id="typing" class="typing hidden">typing…</div>
       <div id="replyBar" class="reply hidden"></div>
-      <div id="attachMenu" class="attach-menu hidden"><button onclick="pickFile()">📄 / 🖼 / 🎵 Attach file</button></div>
+      <div id="attachMenu" class="attach-menu hidden">
+        <button onclick="pickFile('fileInputDoc')">📄 Document</button>
+        <button onclick="pickFile('fileInputMedia')">🖼 Photos &amp; videos</button>
+        <button onclick="pickFile('fileInputCamera')">📷 Camera</button>
+        <button onclick="pickFile('fileInputAudio')">🎵 Audio</button>
+        <input type="file" id="fileInputDoc" hidden accept=".pdf,.doc,.docx,.txt,.zip,.csv,.xlsx,.pptx" onchange="sendFile(this)">
+        <input type="file" id="fileInputMedia" hidden accept="image/*,video/*" onchange="sendFile(this)">
+        <input type="file" id="fileInputCamera" hidden accept="image/*" capture="environment" onchange="sendFile(this)">
+        <input type="file" id="fileInputAudio" hidden accept="audio/*" onchange="sendFile(this)">
+      </div>
       <div id="emojiMenu" class="emoji-menu hidden"><button onclick="addEmoji('😀')">😀</button><button onclick="addEmoji('😂')">😂</button><button onclick="addEmoji('😍')">😍</button><button onclick="addEmoji('👍')">👍</button><button onclick="addEmoji('❤️')">❤️</button><button onclick="addEmoji('🔥')">🔥</button><button onclick="addEmoji('🙏')">🙏</button><button onclick="addEmoji('🎉')">🎉</button></div>
-      <div class="composer"><input type="file" id="fileInput" hidden onchange="sendFile()"><button onclick="toggleAttach()">＋</button><button onclick="toggleEmoji()">☺</button><input id="messageInput" placeholder="Type a message" onkeydown="keySend(event)" oninput="typingNow()"><button class="send" onclick="sendText()">➤</button></div>
+      <div class="composer"><button onclick="toggleAttach()">＋</button><button onclick="toggleEmoji()">☺</button><input id="messageInput" placeholder="Type a message" onkeydown="keySend(event)" oninput="typingNow()"><button class="send" onclick="sendText()">➤</button></div>
     </section>
   </main>
 </div>
@@ -58,7 +60,7 @@
 <div id="groupModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New group</h2><button onclick="closeModal('groupModal')">×</button></div><input id="groupTitle" placeholder="Group subject"><input id="groupSearch" placeholder="Search members" oninput="searchGroupMembers()"><div id="groupMembers" class="modal-list"></div><button class="primary" onclick="createGroup()">Create group</button></div></div>
 <div id="contactModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New contact</h2><button onclick="closeModal('contactModal')">×</button></div><input id="contactPhone" placeholder="Phone number"><input id="contactName" placeholder="Nickname (optional)"><button class="primary" onclick="saveContact()">Save contact</button></div></div>
 <div id="statusModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>New status</h2><button onclick="closeModal('statusModal')">×</button></div><textarea id="statusText" placeholder="What's on your mind?"></textarea><input id="statusBg" value="#075E54" type="color"><button class="primary" onclick="postStatus()">Post</button></div></div>
-<div id="profileModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Edit profile</h2><button onclick="closeModal('profileModal')">×</button></div><div class="profile-center"><div id="profileAvatar" class="avatar huge">Q</div><input type="file" id="avatarInput" accept="image/*" onchange="uploadAvatar()"></div><input id="profileName"><textarea id="profileAbout"></textarea><button class="primary" onclick="saveProfile()">Save</button></div></div>
+<div id="profileModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Profile</h2><button onclick="closeModal('profileModal')">×</button></div><div class="profile-center"><div id="profileAvatar" class="avatar huge">Q</div><input type="file" id="avatarInput" accept="image/*" onchange="uploadAvatar()"></div><label class="field-label">Your name</label><input id="profileName"><label class="field-label">About</label><textarea id="profileAbout"></textarea><label class="field-label">Phone</label><div id="profilePhone" class="phone-display"></div><button class="primary" onclick="saveProfile()">Save</button></div></div>
 <div id="groupInfoModal" class="modal hidden"><div class="card"><div class="modal-head"><h2 id="groupInfoTitle">Group info</h2><button onclick="closeModal('groupInfoModal')">×</button></div>
   <div id="groupInfoAdminTools" class="hidden"><input id="groupAddSearch" placeholder="Search name or phone to add" oninput="searchAddMember()"><div id="groupAddResults" class="modal-list"></div></div>
   <div class="search-section">Members</div>
@@ -73,7 +75,7 @@
   <button onclick="showChatInfo()">ⓘ Chat info</button><button onclick="searchInChat()">⌕ Search</button>
   <button onclick="toggleMute()">🔕 Mute</button><button onclick="toggleArchive()">🗂 Archive</button>
   <button onclick="clearChatMessages()">⊘ Clear chat for me</button>
-  <button onclick="deleteChatLocal()">🗑 Delete/close chat</button>
+  <button onclick="deleteChatLocal()">🗑 Delete chat</button>
   <button onclick="blockCurrentUser()">🚫 Block user</button>
   <button onclick="closePopup('chatMenu')">Cancel</button>
 </div>
