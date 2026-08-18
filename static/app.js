@@ -130,7 +130,8 @@ function closeChat(){
   closePopup("chatMenu");toggleAttach(false);toggleEmoji(false);
   $("replyBar").classList.add("hidden");
 }
-async function loadMessages(){if(!activeChat)return;try{let ms=await api(`/api/chats/${activeChat.id}/messages?limit=300`);renderMessages(ms)}catch(e){toast(e.message)}}
+let currentMessages=[];
+async function loadMessages(){if(!activeChat)return;try{let ms=await api(`/api/chats/${activeChat.id}/messages?limit=300`);currentMessages=ms;renderMessages(ms)}catch(e){toast(e.message)}}
 
 function formatLocalDateTime(timestamp){
   if(!timestamp) return "";
@@ -157,9 +158,19 @@ function renderMessage(m){
   if(m.media_url){if(m.media_type==="image")body+=`<img class="media" src="${esc(m.media_url)}" onclick="window.open('${esc(m.media_url)}','_blank')">`;else if(m.media_type==="audio")body+=`<audio controls src="${esc(m.media_url)}"></audio>`;else if(m.media_type==="video")body+=`<video class="media" controls src="${esc(m.media_url)}"></video>`;else body+=`<a href="${esc(m.media_url)}" target="_blank" rel="noopener">📎 ${esc(m.file_name||"Document")}</a>`}
   let reactions=m.reactions?.length?`<div class="reaction-row">${m.reactions.map(r=>esc(r.emoji)).join(" ")}</div>`:"";
   let ticks=m.mine?`<span class="ticks ${m.read?"read":(m.delivered?"delivered":"sent")}" title="${m.read?"Read":(m.delivered?"Delivered":"Sent")}">${m.read?"✓✓":(m.delivered?"✓✓":"✓")}</span>`:"";
-  let actionButtons=`<button title="Reply" onclick="replyTo(${m.id})">↩</button><button title="Heart" onclick="react(${m.id},'❤️')">❤️</button><button title="Star" onclick="starMsg(${m.id})">${m.starred?"★":"☆"}</button><button title="Pin" onclick="pinMsg(${m.id})">${m.pinned?"📌":"📍"}</button>`;
+  let actionButtons=`<button title="Reply" onclick="replyTo(${m.id})">↩</button><button title="Forward" onclick="openForwardModal(${m.id})">➦</button><button title="Heart" onclick="react(${m.id},'❤️')">❤️</button><button title="Star" onclick="starMsg(${m.id})">${m.starred?"★":"☆"}</button><button title="Pin" onclick="pinMsg(${m.id})">${m.pinned?"📌":"📍"}</button>`;
   if(m.mine&&!m.deleted)actionButtons+=`<button title="Edit" onclick="editMsg(${m.id})">✎</button><button title="Delete" onclick="delMsg(${m.id})">🗑</button>`;
-  div.innerHTML=`<div class="msg-actions">${actionButtons}</div>${m.reply_to_id?`<div class="reply-mini">↩ Reply to #${m.reply_to_id}</div>`:""}<span>${body}</span><span class="time">${formatLocalDateTime(m.created_at)} ${m.edited?" · edited ":""}${ticks}</span>${reactions}`;
+  let replyHtml="";
+  if(m.reply_to_id){
+    if(m.reply_preview){
+      let rp=m.reply_preview;
+      let rpText=rp.deleted?"<i>This message was deleted</i>":esc(rp.text||"📎 Media");
+      replyHtml=`<div class="reply-mini" onclick="$('m-${rp.id}')?.scrollIntoView({behavior:'smooth',block:'center'})"><b>${esc(rp.sender_name)}</b><br>${rpText}</div>`;
+    }else{
+      replyHtml=`<div class="reply-mini">↩ Replying to a message</div>`;
+    }
+  }
+  div.innerHTML=`<div class="msg-actions">${actionButtons}</div>${replyHtml}<span>${body}</span><span class="time">${formatLocalDateTime(m.created_at)} ${m.edited?" · edited ":""}${ticks}</span>${reactions}`;
   box.appendChild(div)
 }
 async function sendText(){
@@ -185,7 +196,30 @@ function toggleEmoji(force){let el=$("emojiMenu");if(force===false)el.classList.
 function addEmoji(x){$("messageInput").value+=x;$("messageInput").focus();toggleEmoji(false)}
 async function delMsg(id){if(!confirm("Delete this message for everyone?"))return;try{await api(`/api/messages/${id}`,{method:"DELETE"})}catch(e){toast(e.message)}}
 async function editMsg(id){let node=$(`m-${id}`);let old=node?.innerText?.replace(/\d{1,2}:\d{2}.*/,"").trim()||"";let text=prompt("Edit message",old);if(text===null||!text.trim())return;try{await api(`/api/messages/${id}`,{method:"PATCH",body:JSON.stringify({text:text.trim()})})}catch(e){toast(e.message)}}
-function replyTo(id){replyId=id;$("replyBar").innerHTML=`↩ Replying to message #${id} <button onclick="replyId=null;$('replyBar').classList.add('hidden')">×</button>`;$("replyBar").classList.remove("hidden");$("messageInput").focus()}
+function replyTo(id){
+  replyId=id;
+  let m=currentMessages.find(x=>x.id===id);
+  let preview=m?(m.deleted?"This message was deleted":esc(m.text||(m.media_url?"📎 Media":""))):`message #${id}`;
+  $("replyBar").innerHTML=`↩ Replying to: <i>${preview}</i> <button onclick="replyId=null;$('replyBar').classList.add('hidden')">×</button>`;
+  $("replyBar").classList.remove("hidden");$("messageInput").focus()
+}
+let forwardMsgId=null,forwardSelected=new Set();
+async function openForwardModal(id){
+  forwardMsgId=id;forwardSelected.clear();
+  try{
+    let list=await api("/api/chats");
+    $("forwardList").innerHTML=list.map(c=>`<div class="result-row"><input type="checkbox" class="check" onchange="toggleForwardTarget(${c.id},this.checked)"><div class="list-main"><b>${esc(c.title)}</b></div></div>`).join("")||'<div class="empty-search">No chats available.</div>';
+    $("forwardModal").classList.remove("hidden");
+  }catch(e){toast(e.message)}
+}
+function toggleForwardTarget(chatId,checked){if(checked)forwardSelected.add(chatId);else forwardSelected.delete(chatId)}
+async function sendForward(){
+  if(!forwardMsgId||!forwardSelected.size)return toast("Select at least one chat");
+  try{
+    await api(`/api/messages/${forwardMsgId}/forward`,{method:"POST",body:JSON.stringify({chat_ids:[...forwardSelected]})});
+    closeModal("forwardModal");toast("Message forwarded");await loadChats();
+  }catch(e){toast(e.message)}
+}
 async function react(id,emoji){try{await api(`/api/messages/${id}/reaction`,{method:"POST",body:JSON.stringify({emoji})})}catch(e){toast(e.message)}}
 async function starMsg(id){try{await api(`/api/messages/${id}/star`,{method:"POST"})}catch(e){toast(e.message)}}
 async function pinMsg(id){try{await api(`/api/messages/${id}/pin`,{method:"POST"})}catch(e){toast(e.message)}}
@@ -213,6 +247,7 @@ function connectWS(){
     if(d.type==="pong")return;
     if(d.type==="message"){
       if(activeChat&&d.message.chat_id===activeChat.id){
+        currentMessages.push(d.message);
         renderMessage(d.message);
         $("messages").scrollTop=$("messages").scrollHeight;
         if(d.message.sender_id!==me?.id)api(`/api/chats/${activeChat.id}/read`,{method:"POST"}).catch(()=>{});
@@ -220,7 +255,7 @@ function connectWS(){
       await loadChats();
     }else if(d.type==="message_ack"){
       pendingMessages.delete(d.client_id);
-      if(activeChat&&d.message.chat_id===activeChat.id){renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight}
+      if(activeChat&&d.message.chat_id===activeChat.id){currentMessages.push(d.message);renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight}
     }
     else if(d.type==="message_error"){pendingMessages.delete(d.client_id);toast(d.message||"Message failed")}
     else if(d.type==="message_updated"){if(activeChat&&d.message.chat_id===activeChat.id)await loadMessages();await loadChats()}
@@ -309,8 +344,12 @@ async function openGroupInfo(){
     $("groupInfoAdminTools").classList.toggle("hidden",!d.am_admin);
     $("groupAddSearch").value="";$("groupAddResults").innerHTML="";
     $("groupMembersList").innerHTML=d.members.map(m=>{
-      let removeBtn=(d.am_admin&&m.id!==me.id)?`<button title="Remove" onclick="removeMemberFromGroup(${m.id})">✕</button>`:"";
-      return `<div class="result-row">${avatarHTML(m)}<div class="list-main"><b>${esc(m.name)}${m.is_admin?" · admin":""}</b><small>${esc(m.phone)}</small></div>${removeBtn}</div>`;
+      let extraBtns="";
+      if(d.am_admin&&m.id!==me.id){
+        if(!m.is_admin)extraBtns+=`<button title="Make admin" onclick="promoteMember(${m.id})">⬆</button>`;
+        extraBtns+=`<button title="Remove" onclick="removeMemberFromGroup(${m.id})">✕</button>`;
+      }
+      return `<div class="result-row">${avatarHTML(m)}<div class="list-main"><b>${esc(m.name)}${m.is_admin?" · admin":""}</b><small>${esc(m.phone)}</small></div>${extraBtns}</div>`;
     }).join("");
     $("groupInfoModal").classList.remove("hidden");
   }catch(e){toast(e.message)}
@@ -333,6 +372,10 @@ async function addMemberToGroup(userId){
 async function removeMemberFromGroup(userId){
   if(!activeChat)return;if(!confirm("Remove this member from the group?"))return;
   try{await api(`/api/chats/${activeChat.id}/members/${userId}`,{method:"DELETE"});toast("Member removed");await openGroupInfo()}catch(e){toast(e.message)}
+}
+async function promoteMember(userId){
+  if(!activeChat)return;
+  try{await api(`/api/chats/${activeChat.id}/members/${userId}/promote`,{method:"POST"});toast("Member promoted to admin");await openGroupInfo()}catch(e){toast(e.message)}
 }
 async function leaveGroupChat(){
   if(!activeChat)return;if(!confirm(`Leave "${activeChat.title}"?`))return;

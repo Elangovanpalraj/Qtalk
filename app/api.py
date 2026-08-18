@@ -132,6 +132,17 @@ def msg_json(db: Session, m: Message, me_id: int):
     starred = db.query(MessageStar).filter(MessageStar.message_id == m.id, MessageStar.user_id == me_id).first() is not None
     pinned = db.query(MessagePin).filter(MessagePin.message_id == m.id).first() is not None
     edited = db.query(MessageEdit).filter(MessageEdit.message_id == m.id).first() is not None
+    reply_preview = None
+    if m.reply_to_id:
+        rm = db.get(Message, m.reply_to_id)
+        if rm:
+            sender = db.get(User, rm.sender_id)
+            reply_preview = {
+                "id": rm.id,
+                "sender_name": sender.name if sender else "Unknown",
+                "text": None if rm.deleted_at else (rm.text or ("📎 Media" if rm.media_url else "")),
+                "deleted": bool(rm.deleted_at),
+            }
     return {
         "id": m.id, "chat_id": m.chat_id, "sender_id": m.sender_id,
         "text": None if m.deleted_at else m.text,
@@ -139,6 +150,7 @@ def msg_json(db: Session, m: Message, me_id: int):
         "media_type": None if m.deleted_at else m.media_type,
         "file_name": None if m.deleted_at else m.file_name,
         "reply_to_id": m.reply_to_id,
+        "reply_preview": reply_preview,
         "created_at": utc_iso(m.created_at),
         "deleted": bool(m.deleted_at),
         "edited": edited,
@@ -436,6 +448,18 @@ def remove_group_member(chat_id:int,member_id:int,user=Depends(current_user),db:
     db.commit()
     return {"success":True}
 
+@router.post("/chats/{chat_id}/members/{member_id}/promote")
+def promote_group_member(chat_id:int,member_id:int,user=Depends(current_user),db:Session=Depends(get_db)):
+    c=db.get(Chat,chat_id)
+    if not c or c.kind!="group" or not is_member(c,user.id): raise HTTPException(404,"Group not found")
+    admin=db.query(GroupMemberMeta).filter_by(chat_id=chat_id,user_id=user.id,is_admin=True).first()
+    if not admin: raise HTTPException(403,"Admin only")
+    meta=db.query(GroupMemberMeta).filter_by(chat_id=chat_id,user_id=member_id).first()
+    if not meta: raise HTTPException(404,"Member not found")
+    meta.is_admin=True
+    db.commit()
+    return {"success":True}
+
 @router.post("/chats/{chat_id}/read")
 async def mark_read(chat_id:int,user=Depends(current_user),db:Session=Depends(get_db)):
     c=db.get(Chat,chat_id)
@@ -473,6 +497,36 @@ async def create_message(data:MessageIn,user=Depends(current_user),db:Session=De
             if recipient_id != user.id and manager.online(recipient_id):
                 await manager.send_user(user.id,{"type":"delivery","chat_id":c.id,"user_id":recipient_id,"message_ids":[m.id]})
     return msg_json(db,m,user.id)
+
+class ForwardIn(BaseModel):
+    chat_ids: list[int]
+
+@router.post("/messages/{message_id}/forward")
+async def forward_message(message_id:int,data:ForwardIn,user=Depends(current_user),db:Session=Depends(get_db)):
+    src=db.get(Message,message_id)
+    if not src or src.deleted_at: raise HTTPException(404,"Message not found")
+    src_chat=db.get(Chat,src.chat_id)
+    if not is_member(src_chat,user.id): raise HTTPException(403,"Forbidden")
+    if not data.chat_ids: raise HTTPException(400,"Choose at least one chat")
+    now=datetime.utcnow()
+    sent=[]
+    for target_chat_id in dict.fromkeys(data.chat_ids):
+        c=db.get(Chat,target_chat_id)
+        if not c or not is_member(c,user.id): continue
+        if c.kind=="direct" and blocked_either_way(db,user.id,next((x for x in chat_member_ids(c) if x!=user.id),user.id)):
+            continue
+        m=Message(chat_id=c.id,sender_id=user.id,text=src.text,media_url=src.media_url,media_type=src.media_type,file_name=src.file_name)
+        db.add(m);db.flush()
+        for uid in chat_member_ids(c):
+            if uid!=user.id and manager.online(uid):
+                db.add(MessageDelivery(message_id=m.id,user_id=uid,delivered_at=now))
+        if any(manager.online(uid) for uid in chat_member_ids(c) if uid!=user.id):
+            m.delivered_at=now
+        db.commit();db.refresh(m)
+        for recipient_id in chat_member_ids(c):
+            await manager.send_user(recipient_id,{"type":"message","message":msg_json(db,m,recipient_id)})
+        sent.append(msg_json(db,m,user.id))
+    return {"success":True,"sent":sent}
 
 @router.post("/chats/{chat_id}/media")
 async def media_message(chat_id:int,file:UploadFile=File(...),user=Depends(current_user),db:Session=Depends(get_db)):

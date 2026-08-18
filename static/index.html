@@ -66,6 +66,7 @@
   <button class="danger" onclick="leaveGroupChat()">🚪 Leave group</button>
 </div></div>
 <div id="chatInfoModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Contact info</h2><button onclick="closeModal('chatInfoModal')">×</button></div><div id="chatInfoBody"></div></div></div>
+<div id="forwardModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Forward message</h2><button onclick="closeModal('forwardModal')">×</button></div><div id="forwardList" class="modal-list"></div><button class="primary" onclick="sendForward()">Forward</button></div></div>
 <div id="archivedModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Archived chats</h2><button onclick="closeModal('archivedModal')">×</button></div><div id="archivedList" class="modal-list"></div></div></div>
 <div id="blockedModal" class="modal hidden"><div class="card"><div class="modal-head"><h2>Blocked contacts</h2><button onclick="closeModal('blockedModal')">×</button></div><div id="blockedList" class="modal-list"></div></div></div>
 <div id="chatMenu" class="menu-popup hidden">
