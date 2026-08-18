@@ -152,10 +152,20 @@ function renderMessages(ms){
   let pinned=ms.find(m=>m.pinned);if(pinned){$("pinnedBar").textContent=`📌 ${pinned.text||pinned.file_name||"Pinned message"}`;$("pinnedBar").dataset.id=pinned.id;$("pinnedBar").classList.remove("hidden")}else $("pinnedBar").classList.add("hidden")
 }
 function renderMessage(m){
-  let box=$("messages");if($(`m-${m.id}`))return;
-  let div=document.createElement("div");div.className=`bubble ${m.mine?"mine":"theirs"}`;div.id=`m-${m.id}`;
+  let box=$("messages"),div=$(`m-${m.id}`);
+  if(!div){
+    div=document.createElement("div");
+    div.id=`m-${m.id}`;
+    box.appendChild(div);
+  }
+  div.className=`bubble ${m.mine?"mine":"theirs"}`;
   let body=m.deleted?"<i>This message was deleted</i>":esc(m.text||"");
-  if(m.media_url){if(m.media_type==="image")body+=`<img class="media" src="${esc(m.media_url)}" onclick="window.open('${esc(m.media_url)}','_blank')">`;else if(m.media_type==="audio")body+=`<audio controls src="${esc(m.media_url)}"></audio>`;else if(m.media_type==="video")body+=`<video class="media" controls src="${esc(m.media_url)}"></video>`;else body+=`<a href="${esc(m.media_url)}" target="_blank" rel="noopener">📎 ${esc(m.file_name||"Document")}</a>`}
+  if(m.media_url){
+    if(m.media_type==="image")body+=`<img class="media" src="${esc(m.media_url)}" onclick="window.open('${esc(m.media_url)}','_blank')">`;
+    else if(m.media_type==="audio")body+=`<audio controls src="${esc(m.media_url)}"></audio>`;
+    else if(m.media_type==="video")body+=`<video class="media" controls src="${esc(m.media_url)}"></video>`;
+    else body+=`<a href="${esc(m.media_url)}" target="_blank" rel="noopener">📎 ${esc(m.file_name||"Document")}</a>`
+  }
   let reactions=m.reactions?.length?`<div class="reaction-row">${m.reactions.map(r=>esc(r.emoji)).join(" ")}</div>`:"";
   let ticks=m.mine?`<span class="ticks ${m.read?"read":(m.delivered?"delivered":"sent")}" title="${m.read?"Read":(m.delivered?"Delivered":"Sent")}">${m.read?"✓✓":(m.delivered?"✓✓":"✓")}</span>`:"";
   let actionButtons=`<button title="Reply" onclick="replyTo(${m.id})">↩</button><button title="Forward" onclick="openForwardModal(${m.id})">➦</button><button title="Heart" onclick="react(${m.id},'❤️')">❤️</button><button title="Star" onclick="starMsg(${m.id})">${m.starred?"★":"☆"}</button><button title="Pin" onclick="pinMsg(${m.id})">${m.pinned?"📌":"📍"}</button>`;
@@ -166,13 +176,18 @@ function renderMessage(m){
       let rp=m.reply_preview;
       let rpText=rp.deleted?"<i>This message was deleted</i>":esc(rp.text||"📎 Media");
       replyHtml=`<div class="reply-mini" onclick="$('m-${rp.id}')?.scrollIntoView({behavior:'smooth',block:'center'})"><b>${esc(rp.sender_name)}</b><br>${rpText}</div>`;
-    }else{
-      replyHtml=`<div class="reply-mini">↩ Replying to a message</div>`;
-    }
+    }else replyHtml=`<div class="reply-mini">↩ Replying to a message</div>`;
   }
   div.innerHTML=`<div class="msg-actions">${actionButtons}</div>${replyHtml}<span>${body}</span><span class="time">${formatLocalDateTime(m.created_at)} ${m.edited?" · edited ":""}${ticks}</span>${reactions}`;
-  box.appendChild(div)
 }
+function updateMessageState(message){
+  if(!message?.id)return;
+  const index=currentMessages.findIndex(x=>x.id===message.id);
+  if(index>=0)currentMessages[index]={...currentMessages[index],...message};
+  else currentMessages.push(message);
+  if(activeChat?.id===message.chat_id)renderMessage(index>=0?currentMessages[index]:message);
+}
+
 async function sendText(){
   let input=$("messageInput"),text=input.value.trim();if(!activeChat||!text)return;
   let clientId=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,payload={type:"message",chat_id:activeChat.id,text,reply_to_id:replyId,client_id:clientId};
@@ -246,48 +261,73 @@ function connectWS(){
     }
     if(d.type==="pong")return;
     if(d.type==="message"){
-      if(activeChat&&d.message.chat_id===activeChat.id){
-        currentMessages.push(d.message);
-        renderMessage(d.message);
-        $("messages").scrollTop=$("messages").scrollHeight;
-        if(d.message.sender_id!==me?.id)api(`/api/chats/${activeChat.id}/read`,{method:"POST"}).catch(()=>{});
+      const m=d.message;
+      updateMessageState(m);
+      if(activeChat&&m.chat_id===activeChat.id){
+        if(m.sender_id!==me?.id){
+          await api(`/api/chats/${activeChat.id}/read`,{method:"POST"}).catch(()=>{});
+        }
+        const box=$("messages");box.scrollTop=box.scrollHeight;
       }
       await loadChats();
-    }else if(d.type==="message_ack"){
+      return;
+    }
+    if(d.type==="message_ack"){
       pendingMessages.delete(d.client_id);
-      if(activeChat&&d.message.chat_id===activeChat.id){currentMessages.push(d.message);renderMessage(d.message);$("messages").scrollTop=$("messages").scrollHeight}
+      updateMessageState(d.message);
+      if(activeChat&&d.message?.chat_id===activeChat.id){
+        const box=$("messages");box.scrollTop=box.scrollHeight;
+      }
+      return;
     }
-    else if(d.type==="message_error"){pendingMessages.delete(d.client_id);toast(d.message||"Message failed")}
-    else if(d.type==="message_updated"){if(activeChat&&d.message.chat_id===activeChat.id)await loadMessages();await loadChats()}
-    else if(d.type==="message_deleted"){$(`m-${d.message_id}`)?.remove();await loadChats()}
-    else if(d.type==="reaction"||d.type==="message_meta"){if(activeChat)await loadMessages()}
-    else if(d.type==="read"||d.type==="delivery"){
+    if(d.type==="message_error"){
+      pendingMessages.delete(d.client_id);toast(d.message||"Message failed");return;
+    }
+    if(d.type==="message_updated"){
+      updateMessageState(d.message);await loadChats();return;
+    }
+    if(d.type==="message_deleted"){
+      $(`m-${d.message_id}`)?.remove();
+      currentMessages=currentMessages.filter(x=>x.id!==d.message_id);
+      await loadChats();return;
+    }
+    if(d.type==="reaction"||d.type==="message_meta"){
+      if(activeChat)await loadMessages();
+      return;
+    }
+    if(d.type==="delivery"||d.type==="read"){
       const ids=new Set(d.message_ids||[]);
-      // Delivery/read events are sent to the original sender. Update only
-      // messages that belong to the currently open chat.
       if(activeChat&&d.chat_id===activeChat.id){
-        ids.forEach(id=>{
-          const el=$(`m-${id}`);const t=el?.querySelector(".ticks");
-          if(!t)return;
-          if(d.type==="read"){t.textContent="✓✓";t.className="ticks read";t.title="Read"}
-          else if(!t.classList.contains("read")){t.textContent="✓✓";t.className="ticks delivered";t.title="Delivered"}
-        });
+        currentMessages=currentMessages.map(m=>ids.has(m.id)?{...m,...(d.type==="read"?{read:true,delivered:true}:{delivered:true})}:m);
+        currentMessages.filter(m=>ids.has(m.id)).forEach(renderMessage);
       }
       await loadChats();
+      return;
     }
-    else if(d.type==="typing"&&activeChat&&d.chat_id===activeChat.id){$("typing").classList.toggle("hidden",!d.is_typing)}
-    else if(d.type==="presence"){
-      chats.forEach(c=>{if(c.other?.id===d.user_id){c.other.is_online=!!d.online;c.other.last_seen=d.last_seen||c.other.last_seen;}});
+    if(d.type==="typing"&&activeChat&&d.chat_id===activeChat.id){
+      $("typing").classList.toggle("hidden",!d.is_typing);return;
+    }
+    if(d.type==="presence"){
+      chats.forEach(c=>{
+        if(c.other?.id===d.user_id){c.other.is_online=!!d.online;c.other.last_seen=d.last_seen||c.other.last_seen;}
+      });
       if(activeChat?.other?.id===d.user_id){
         activeChat.other.is_online=!!d.online;
         activeChat.other.last_seen=d.last_seen||activeChat.other.last_seen;
         $("chatStatus").textContent=d.online?"online":(d.last_seen?`last seen ${formatLocalDateTime(d.last_seen)}`:"offline");
       }
-      if(!$("search").value.trim())renderList("chats",chats);
+      if(!$('search').value.trim())renderList("chats",chats);
+      return;
     }
-    else if(d.type==="call")handleCallSignal(d)
+    if(d.type==="call")handleCallSignal(d)
   };
-  ws.onclose=()=>{clearInterval(pingTimer);if(!wsStop){clearTimeout(wsReconnectTimer);wsReconnectTimer=setTimeout(connectWS,2000)}}
+  ws.onclose=()=>{
+    clearInterval(pingTimer);
+    if(!wsStop){
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer=setTimeout(connectWS,1500);
+    }
+  };
   ws.onerror=()=>{}
 }
 let searchTimer=null;
@@ -436,4 +476,11 @@ async function acceptIncomingCall(){
 function rejectIncomingCall(){if(incomingCallData)ws?.send(JSON.stringify({type:"call",action:"hangup",to_user_id:incomingCallData.from_user_id}));incomingCallData=null;closeModal("incomingCall")}
 async function handleCallSignal(d){if(d.action==="offer")return handleIncomingCall(d);if(d.action==="answer"&&pc)await pc.setRemoteDescription(d.answer);else if(d.action==="candidate"&&pc){try{await pc.addIceCandidate(d.candidate)}catch{}}else if(d.action==="hangup")hangup(false)}
 function hangup(send=true){if(send&&ws&&activeChat?.other?.id)ws.send(JSON.stringify({type:"call",action:"hangup",to_user_id:activeChat.other.id}));if(pc){pc.close();pc=null}if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null}$("remoteVideo").srcObject=null;$("localVideo").srcObject=null;closeModal("callModal")}
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"&&!wsStop&&me){
+    if(!ws||ws.readyState===WebSocket.CLOSED||ws.readyState===WebSocket.CLOSING)connectWS();
+    else if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"ping"}));
+  }
+});
+window.addEventListener("online",()=>{if(me&&!wsStop)connectWS()});
 window.addEventListener("load",()=>{if(localStorage.getItem("dark")==="true")document.body.classList.add("dark");boot()});

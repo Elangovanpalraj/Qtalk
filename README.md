@@ -1,169 +1,75 @@
-# Qtalk — upgraded WhatsApp-style local clone
+# Qtalk — realtime WhatsApp-style web chat
 
-This ZIP is an upgraded version of the Qtalk project you uploaded. It keeps the FastAPI + SQLAlchemy + SQLite + WebSocket architecture, but fixes the most important realtime/multi-user problems and adds more chat functionality.
+This build was reviewed against the supplied Qtalk project and the supplied WhatsApp reference screenshots. It keeps the existing FastAPI + SQLAlchemy + WebSocket structure and fixes the core two-user behaviour.
 
-## Main fixes in this build
+## Fixed in this build
 
-### Realtime messaging
-- WebSocket is authenticated with the JWT token instead of trusting a browser-supplied user ID.
-- Messages can be sent through the WebSocket and are persisted on the server before broadcast.
-- Every client send gets a `client_id` for idempotency. Retrying the same message does not create duplicates.
-- The server broadcasts a saved message to the correct chat members only.
-- Multiple browser tabs for the same user are supported.
-- Offline messages are persisted and marked delivered when the recipient reconnects.
-- Delivery receipts and read receipts are tracked per user.
-- Message ordering uses database IDs and timestamps.
-- WebSocket reconnect + heartbeat/ping is included.
-- Presence is broadcast to members of chats.
-- Typing events are checked against chat membership.
+### Realtime chat
+- Sender sees their message on the **right**.
+- Receiver sees the same message on the **left**.
+- WebSocket broadcasts are serialized separately for each user, so `mine` is never shared between users.
+- Message delivery is persisted before the event is sent.
+- `✓` Sent → `✓✓` Delivered → `✓✓` blue Read.
+- In a group, delivered/read ticks require all other members, matching WhatsApp-style semantics.
+- Offline messages are marked delivered when the recipient reconnects.
+- Read receipts are sent only to the original message sender(s).
+- Duplicate sends are prevented with `client_id`.
+- Mobile browser resume/network recovery reconnects the WebSocket.
 
-### Search
-- Name search.
-- Phone search.
-- `9787609729`
-- `+919787609729`
-- `+91 9787609729`
-- `97876-09729`
-- Contacts are not required for phone search.
-- Only limited public profile fields are returned.
-- Search has a basic rate limit.
+### Presence
+- Connecting users receive an initial online snapshot of users they share chats with.
+- Online/offline transitions are broadcast only to relevant chat members.
+- Multiple tabs/devices for the same account do not cause false offline transitions.
+- Chat header changes between `online` and `last seen ...`.
 
-### Chat features
-- 1-to-1 chats.
-- Groups.
-- Reply.
-- Reactions.
-- Edit your own message within 15 minutes.
-- Delete your own message for everyone.
-- Star messages.
-- Pin messages.
-- Search inside a chat.
-- Clear chat for yourself.
-- Archive chat.
-- Mute chat.
-- Block/unblock users.
-- Group member add/remove API and group admin metadata.
-- Image/audio/video/document upload.
-- Profile photo and profile editing.
-- Status with 24-hour expiry and view tracking.
-- Dark mode.
-- WebRTC voice/video call signaling for local/browser testing.
+### Login persistence
+- Login creates both a 30-day JWT and an HttpOnly `qtalk_session` cookie.
+- If localStorage is missing/stale, API requests fall back to the cookie.
+- WebSocket authentication also falls back to the cookie.
+- Normal refresh/navigation therefore does not require OTP again.
 
-## Important: existing qtalk.db
+### Mobile
+- User row opens the chat immediately.
+- Chat becomes full-screen on mobile.
+- Back button returns to the chat list.
+- Existing desktop two-pane layout is preserved.
 
-This version adds new tables but does not intentionally delete your existing users/chats/messages.
+## Important Render deployment note
 
-If you already have `qtalk.db`, keep it.
+The default project database is SQLite. **Do not rely on an ephemeral Render filesystem for production data.** If Render restarts/redeploys and your SQLite file is not on persistent storage, users, chats, messages and sessions can disappear. For a real deployment, set `DATABASE_URL` to a persistent PostgreSQL database (recommended) or attach persistent storage for SQLite.
 
-The application runs `Base.metadata.create_all()` at startup, so the new tables are created automatically.
-
-If you want a clean demo database, stop the server and delete `qtalk.db` once.
-
-## Windows setup
-
-Your earlier error:
+Example environment variable:
 
 ```text
-C:\Qtalk-Final>.venv\Scripts\activate
-The system cannot find the path specified.
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/qtalk
 ```
 
-means the `.venv` folder does not exist in that project folder.
+If you use PostgreSQL, add the PostgreSQL driver to `requirements.txt` before deploying.
 
-From PowerShell:
+## Windows
 
-```powershell
-cd C:\Qtalk-Final
-
+```cmd
+cd /d D:\Qtalk
 py -m venv .venv
-
-.venv\Scripts\Activate.ps1
-
-python -m pip install --upgrade pip
+.venv\Scripts\activate
 python -m pip install -r requirements.txt
-
 python -m uvicorn app.main:app --reload
 ```
 
-Then open:
+## Two-user test
 
-```text
-http://127.0.0.1:8000
-```
+Use exactly the setup you already use:
 
-If PowerShell blocks activation, you can skip activation and run:
+- System/Desktop = User A
+- Mobile = User B
 
-```powershell
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe -m uvicorn app.main:app --reload
-```
+Test in this order:
 
-Or simply run:
-
-```powershell
-run.bat
-```
-
-after creating the virtual environment and installing requirements.
-
-## Two-user realtime test
-
-1. Open normal Chrome.
-2. Login as user A.
-3. Open an Incognito window.
-4. Open the same Qtalk URL.
-5. Login as user B.
-6. From user B search user A using either the name or phone number.
-7. Open the chat.
-8. Send several messages quickly from both sides.
-9. Close one browser, send messages to that user, then reopen/reconnect.
-10. Verify that the offline messages appear and unread count is correct.
-
-Example phone searches:
-
-```text
-9787609729
-+919787609729
-+91 9787609729
-97876-09729
-```
-
-## Browser cache
-
-After replacing frontend files, use:
-
-```text
-Ctrl + F5
-```
-
-If an old tab is still connected, close it and open a fresh tab.
-
-## What this is NOT
-
-This is an independent Qtalk application. It is not WhatsApp's source code and it cannot connect to WhatsApp's private backend.
-
-Do not advertise this local build as having WhatsApp's production security guarantees.
-
-For public production deployment you still need:
-- real SMS/OTP provider
-- HTTPS
-- PostgreSQL + migrations
-- Redis/pub-sub for multi-server WebSocket fan-out
-- object storage/CDN for media
-- push notifications
-- TURN infrastructure for reliable WebRTC
-- abuse/rate limiting and moderation
-- backups/monitoring
-- privacy settings and legal compliance
-- a properly designed end-to-end encryption/key-management system
-
-## Feature roadmap
-
-The current build focuses on fixing the message engine first. The next sensible production modules are:
-1. media gallery + voice recording
-2. full group management UI
-3. status media/replies/privacy
-4. notifications
-5. stronger privacy settings
-6. production call infrastructure
-7. end-to-end encryption design
+1. Both users login once.
+2. Both should show `online` while their WebSocket is connected.
+3. A sends a message: A = right, B = left.
+4. A should move from `✓` to `✓✓` when B's device receives it.
+5. B opens the chat/read state: A should see blue `✓✓`.
+6. Close B's browser/network, send A a message, then reconnect B.
+7. The message should appear for B and A should receive the delivery update.
+8. Refresh either browser. OTP login should not reappear while the session is valid.

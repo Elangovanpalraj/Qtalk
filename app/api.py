@@ -127,8 +127,17 @@ def chat_for_users(db: Session, a: int, b: int):
 
 def msg_json(db: Session, m: Message, me_id: int):
     reactions = db.query(MessageReaction).filter(MessageReaction.message_id == m.id).all()
-    delivered_count = db.query(MessageDelivery).filter(MessageDelivery.message_id == m.id).count()
-    read_count = db.query(ReadReceipt).filter(ReadReceipt.message_id == m.id).count()
+    chat = db.get(Chat, m.chat_id)
+    recipient_ids = [uid for uid in chat_member_ids(chat) if uid != m.sender_id] if chat else []
+    delivered_ids = {row.user_id for row in db.query(MessageDelivery).filter(MessageDelivery.message_id == m.id).all()}
+    read_ids = {row.user_id for row in db.query(ReadReceipt).filter(ReadReceipt.message_id == m.id).all()}
+    # For a direct chat there is exactly one recipient. For groups, WhatsApp-style
+    # ticks become double only after every other member has received the message,
+    # and blue only after every other member has read it.
+    delivered_count = len(delivered_ids.intersection(recipient_ids))
+    read_count = len(read_ids.intersection(recipient_ids))
+    all_delivered = bool(recipient_ids) and delivered_count == len(recipient_ids)
+    all_read = bool(recipient_ids) and read_count == len(recipient_ids)
     starred = db.query(MessageStar).filter(MessageStar.message_id == m.id, MessageStar.user_id == me_id).first() is not None
     pinned = db.query(MessagePin).filter(MessagePin.message_id == m.id).first() is not None
     edited = db.query(MessageEdit).filter(MessageEdit.message_id == m.id).first() is not None
@@ -154,9 +163,9 @@ def msg_json(db: Session, m: Message, me_id: int):
         "created_at": utc_iso(m.created_at),
         "deleted": bool(m.deleted_at),
         "edited": edited,
-        "delivered": delivered_count > 0 or bool(m.delivered_at),
+        "delivered": all_delivered,
         "delivered_count": delivered_count,
-        "read": read_count > 0,
+        "read": all_read,
         "read_count": read_count,
         "starred": starred,
         "pinned": pinned,
@@ -465,15 +474,28 @@ async def mark_read(chat_id:int,user=Depends(current_user),db:Session=Depends(ge
     c=db.get(Chat,chat_id)
     if not is_member(c,user.id): raise HTTPException(403,"Forbidden")
     now=datetime.utcnow()
-    unread=db.query(Message).filter(Message.chat_id==chat_id,Message.sender_id!=user.id,Message.deleted_at==None).all()
+    unread=db.query(Message).filter(
+        Message.chat_id==chat_id, Message.sender_id!=user.id, Message.deleted_at==None
+    ).all()
     changed=[]
+    sender_ids=set()
     for m in unread:
         exists=db.query(ReadReceipt).filter_by(message_id=m.id,user_id=user.id).first()
         if not exists:
-            db.add(ReadReceipt(message_id=m.id,user_id=user.id,read_at=now));changed.append(m.id)
+            db.add(ReadReceipt(message_id=m.id,user_id=user.id,read_at=now))
+            changed.append(m.id)
+            sender_ids.add(m.sender_id)
     db.commit()
-    if changed:
-        await manager.send_many(chat_member_ids(c),{"type":"read","chat_id":chat_id,"user_id":user.id,"message_ids":changed})
+    # A read receipt belongs to the reader, but the visible tick belongs to the
+    # original sender. Send the event only to those senders instead of every
+    # member, which prevents unrelated clients from changing their own bubbles.
+    for sender_id in sender_ids:
+        ids=[mid for mid in changed if db.get(Message,mid).sender_id==sender_id]
+        if ids:
+            await manager.send_user(sender_id,{
+                "type":"read", "chat_id":chat_id, "user_id":user.id,
+                "message_ids":ids,
+            })
     return {"success":True,"count":len(changed)}
 
 @router.get("/chats/{chat_id}/messages")

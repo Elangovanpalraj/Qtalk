@@ -3,6 +3,7 @@ import json
 from collections import defaultdict
 from fastapi import WebSocket
 
+
 class ConnectionManager:
     def __init__(self):
         self.connections = defaultdict(set)
@@ -46,5 +47,6 @@ class ConnectionManager:
     async def send_many(self, user_ids, payload: dict):
         ids = list(set(int(x) for x in user_ids))
         await asyncio.gather(*(self.send_user(uid, payload) for uid in ids), return_exceptions=True)
+
 
 manager = ConnectionManager()
